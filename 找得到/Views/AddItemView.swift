@@ -11,6 +11,7 @@ struct AddItemView: View {
     @State private var selectedImage: UIImage?
     @State private var showingImagePicker = false
     @State private var showingCamera = false
+    @State private var showingPhotoLibrary = false
     @State private var imageSource: ImageSource = .photoLibrary
     
     private enum ImageSource {
@@ -83,21 +84,22 @@ struct AddItemView: View {
                         .default(Text("拍照")) {
                             imageSource = .camera
                             showingCamera = true
+                            showingImagePicker = false
                         },
                         .default(Text("从相册选择")) {
                             imageSource = .photoLibrary
-                            showingCamera = true
+                            showingPhotoLibrary = true
+                            showingImagePicker = false
                         },
                         .cancel()
                     ]
                 )
             }
             .sheet(isPresented: $showingCamera) {
-                if imageSource == .camera {
-                    CameraView(image: $selectedImage)
-                } else {
-                    ImagePicker(image: $selectedImage)
-                }
+                CameraView(image: $selectedImage)
+            }
+            .sheet(isPresented: $showingPhotoLibrary) {
+                ImagePicker(image: $selectedImage)
             }
         }
     }
