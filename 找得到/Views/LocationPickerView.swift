@@ -6,73 +6,124 @@ struct LocationPickerView: View {
     @Binding var selectedLocation: Location?
     @State private var showingAddLocation = false
     @State private var newLocationName = ""
-    @State private var currentParent: Location?
+    @State private var path: [Location] = []
     
     var body: some View {
-        NavigationStack {
-            List {
-                if let parent = currentParent {
-                    Button {
-                        currentParent = locationManager.getLocation(by: parent.parent ?? UUID())
-                    } label: {
-                        HStack {
-                            Image(systemName: "arrow.left")
-                            Text("返回上级")
-                        }
-                    }
-                }
-                
-                ForEach(currentParent == nil ? locationManager.getRootLocations() : locationManager.getChildren(of: currentParent!)) { location in
-                    HStack {
-                        Button {
-                            if locationManager.getChildren(of: location).isEmpty {
-                                selectedLocation = location
-                                dismiss()
-                            } else {
-                                currentParent = location
-                            }
-                        } label: {
-                            HStack {
-                                Text(location.name)
-                                Spacer()
-                                if !locationManager.getChildren(of: location).isEmpty {
-                                    Image(systemName: "chevron.right")
-                                        .foregroundColor(.gray)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            .navigationTitle(currentParent?.name ?? "选择位置")
+        NavigationStack(path: $path) {
+            LocationListView(
+                currentLocation: nil,
+                selectedLocation: $selectedLocation,
+                path: $path,
+                dismiss: dismiss
+            )
+            .navigationTitle("选择位置")
             .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(for: Location.self) { location in
+                LocationListView(
+                    currentLocation: location,
+                    selectedLocation: $selectedLocation,
+                    path: $path,
+                    dismiss: dismiss
+                )
+            }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("取消") {
                         dismiss()
                     }
                 }
-                
-                ToolbarItem(placement: .navigationBarTrailing) {
+            }
+        }
+    }
+}
+
+struct LocationListView: View {
+    let currentLocation: Location?
+    @Binding var selectedLocation: Location?
+    @Binding var path: [Location]
+    let dismiss: DismissAction
+    @ObservedObject var locationManager = LocationManager.shared
+    @State private var showingAddLocation = false
+    @State private var newLocationName = ""
+    
+    var body: some View {
+        List {
+            if let location = currentLocation {
+                Section {
                     Button {
-                        showingAddLocation = true
+                        selectedLocation = location
+                        dismiss()
                     } label: {
-                        Image(systemName: "plus")
+                        HStack {
+                            Text("选择当前位置：\(location.name)")
+                                .foregroundColor(.blue)
+                            Spacer()
+                            Image(systemName: "checkmark.circle")
+                                .foregroundColor(.blue)
+                        }
                     }
                 }
             }
-            .alert("添加位置", isPresented: $showingAddLocation) {
-                TextField("位置名称", text: $newLocationName)
-                Button("取消", role: .cancel) { }
-                Button("添加") {
-                    if !newLocationName.isEmpty {
-                        let location = locationManager.addLocation(newLocationName, parent: currentParent?.id)
-                        if locationManager.getRootLocations().count == 1 {
+            
+            Section {
+                ForEach(currentLocation == nil ? locationManager.getRootLocations() : locationManager.getChildren(of: currentLocation!)) { location in
+                    Button {
+                        path.append(location)
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading) {
+                                Text(location.name)
+                                if !locationManager.getChildren(of: location).isEmpty {
+                                    Text("\(locationManager.getChildren(of: location).count) 个子位置")
+                                        .font(.caption)
+                                        .foregroundColor(.gray)
+                                }
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .foregroundColor(.gray)
+                        }
+                    }
+                    .swipeActions(edge: .trailing) {
+                        Button {
                             selectedLocation = location
                             dismiss()
+                        } label: {
+                            Label("选择", systemImage: "checkmark")
                         }
-                        newLocationName = ""
+                        .tint(.blue)
                     }
+                    .swipeActions(edge: .leading) {
+                        Button(role: .destructive) {
+                            locationManager.deleteLocation(location)
+                        } label: {
+                            Label("删除", systemImage: "trash")
+                        }
+                    }
+                }
+            }
+            
+            Section {
+                Button {
+                    showingAddLocation = true
+                } label: {
+                    HStack {
+                        Image(systemName: "plus.circle.fill")
+                            .foregroundColor(.blue)
+                        Text("添加新位置")
+                            .foregroundColor(.blue)
+                    }
+                }
+            }
+        }
+        .navigationTitle(currentLocation?.name ?? "选择位置")
+        .alert("添加位置", isPresented: $showingAddLocation) {
+            TextField("位置名称", text: $newLocationName)
+            Button("取消", role: .cancel) { }
+            Button("添加") {
+                if !newLocationName.isEmpty {
+                    let location = locationManager.addLocation(newLocationName, parent: currentLocation?.id)
+                    newLocationName = ""
                 }
             }
         }

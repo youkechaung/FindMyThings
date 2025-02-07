@@ -4,14 +4,16 @@ import PhotosUI
 struct AddItemView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var itemManager: ItemManager
+    @StateObject private var locationManager = LocationManager.shared
     
     @State private var name = ""
     @State private var description = ""
-    @State private var location = ""
+    @State private var selectedLocation: Location?
     @State private var selectedImage: UIImage?
     @State private var showingImagePicker = false
     @State private var showingCamera = false
     @State private var showingPhotoLibrary = false
+    @State private var showingLocationPicker = false
     @State private var imageSource: ImageSource = .photoLibrary
     
     private enum ImageSource {
@@ -24,7 +26,17 @@ struct AddItemView: View {
                 Section {
                     TextField("名称", text: $name)
                     TextField("描述", text: $description)
-                    TextField("位置", text: $location)
+                    Button {
+                        showingLocationPicker = true
+                    } label: {
+                        HStack {
+                            Text(selectedLocation?.fullPath ?? "选择位置")
+                                .foregroundColor(selectedLocation == nil ? .gray : .primary)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .foregroundColor(.gray)
+                        }
+                    }
                 }
                 
                 Section("图片") {
@@ -68,13 +80,13 @@ struct AddItemView: View {
                         let item = Item(
                             name: name,
                             description: description,
-                            location: location,
+                            location: selectedLocation?.fullPath ?? "",
                             imageData: imageData
                         )
                         itemManager.addItem(item)
                         dismiss()
                     }
-                    .disabled(name.isEmpty)
+                    .disabled(name.isEmpty || selectedLocation == nil)
                 }
             }
             .actionSheet(isPresented: $showingImagePicker) {
@@ -100,6 +112,9 @@ struct AddItemView: View {
             }
             .sheet(isPresented: $showingPhotoLibrary) {
                 ImagePicker(image: $selectedImage)
+            }
+            .sheet(isPresented: $showingLocationPicker) {
+                LocationPickerView(selectedLocation: $selectedLocation)
             }
         }
     }
