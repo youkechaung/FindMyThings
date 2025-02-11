@@ -14,6 +14,13 @@ class ItemManager: ObservableObject {
         saveItems()
     }
     
+    func updateItem(_ item: Item) {
+        if let index = items.firstIndex(where: { $0.id == item.id }) {
+            items[index] = item
+            saveItems()
+        }
+    }
+    
     func deleteItem(_ item: Item) {
         if let index = items.firstIndex(where: { $0.id == item.id }) {
             items.remove(at: index)

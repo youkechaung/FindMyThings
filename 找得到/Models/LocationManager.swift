@@ -78,4 +78,23 @@ class LocationManager: ObservableObject {
         locations.removeAll { $0.id == location.id }
         saveLocations()
     }
+    
+    func findLocation(byPath path: String) -> Location? {
+        let components = path.components(separatedBy: " > ")
+        var currentLocation: Location? = nil
+        
+        for component in components {
+            if currentLocation == nil {
+                currentLocation = locations.first { $0.name == component && $0.parent == nil }
+            } else {
+                currentLocation = locations.first { $0.name == component && $0.parent == currentLocation?.id }
+            }
+            
+            if currentLocation == nil {
+                return nil
+            }
+        }
+        
+        return currentLocation
+    }
 }

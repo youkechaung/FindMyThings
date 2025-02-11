@@ -1,8 +1,7 @@
 import Foundation
-import SwiftUI
 
 struct Item: Identifiable, Codable {
-    var id = UUID()
+    let id: UUID
     var name: String
     var description: String
     var location: String
@@ -10,9 +9,10 @@ struct Item: Identifiable, Codable {
     var estimatedPrice: Double
     var imageData: Data?
     var isInUse: Bool
-    var dateCreated: Date
+    let dateCreated: Date
     
-    init(name: String = "", description: String = "", location: String = "", category: String = "", estimatedPrice: Double = 0.0, imageData: Data? = nil) {
+    init(name: String, description: String, location: String, category: String, estimatedPrice: Double, imageData: Data?) {
+        self.id = UUID()
         self.name = name
         self.description = description
         self.location = location

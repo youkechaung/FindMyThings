@@ -8,110 +8,99 @@ struct AddItemView: View {
     
     @State private var name = ""
     @State private var description = ""
-    @State private var selectedLocation: Location?
     @State private var category = ""
+    @State private var selectedLocation: Location?
     @State private var estimatedPrice = 0.0
-    @State private var isLoadingCategory = false
-    @State private var isLoadingPrice = false
     @State private var selectedImage: UIImage?
     @State private var showingImagePicker = false
     @State private var showingCamera = false
     @State private var showingPhotoLibrary = false
     @State private var showingLocationPicker = false
-    @State private var imageSource: ImageSource = .photoLibrary
-    
-    private enum ImageSource {
-        case photoLibrary, camera
-    }
+    @State private var isAnalyzing = false
     
     var body: some View {
         NavigationStack {
             Form {
                 Section {
                     TextField("名称", text: $name)
-                        .onChange(of: name) { oldValue, newValue in
-                            if !newValue.isEmpty && !description.isEmpty {
-                                suggestCategory()
+                }
+                
+                Section {
+                    // 图片选择区域
+                    VStack {
+                        if let image = selectedImage {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(maxHeight: 200)
+                                .cornerRadius(10)
+                        } else {
+                            Button(action: {
+                                showingImagePicker = true
+                            }) {
+                                VStack {
+                                    Image(systemName: "camera")
+                                        .font(.largeTitle)
+                                        .foregroundColor(.blue)
+                                    Text("拍照或选择照片")
+                                        .foregroundColor(.blue)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color.gray.opacity(0.1))
+                                .cornerRadius(10)
                             }
                         }
-                    TextField("描述", text: $description)
-                        .onChange(of: description) { oldValue, newValue in
-                            if !newValue.isEmpty && !name.isEmpty {
-                                suggestCategory()
-                            }
+                    }
+                }
+                
+                if isAnalyzing {
+                    Section {
+                        HStack {
+                            Spacer()
+                            ProgressView("正在分析物品...")
+                            Spacer()
                         }
-                    Button {
+                    }
+                } else {
+                    Section {
+                        TextEditor(text: $description)
+                            .frame(minHeight: 100)
+                    } header: {
+                        Text("物品描述")
+                    }
+                    
+                    Section {
+                        TextField("物品类别", text: $category)
+                    } header: {
+                        Text("物品类别")
+                    }
+                    
+                    Section {
+                        HStack {
+                            Text("¥")
+                            TextField("估算价格", value: $estimatedPrice, format: .number)
+                                .keyboardType(.decimalPad)
+                        }
+                    } header: {
+                        Text("估算价格")
+                    }
+                }
+                
+                Section {
+                    Button(action: {
                         showingLocationPicker = true
-                    } label: {
+                    }) {
                         HStack {
                             Text(selectedLocation?.fullPath ?? "选择位置")
-                                .foregroundColor(selectedLocation == nil ? .gray : .primary)
+                                .foregroundColor(selectedLocation == nil ? .blue : .primary)
                             Spacer()
                             Image(systemName: "chevron.right")
                                 .foregroundColor(.gray)
                         }
                     }
-                    if isLoadingCategory {
-                        HStack {
-                            Text("正在分析物品类别...")
-                            Spacer()
-                            ProgressView()
-                        }
-                    } else if !category.isEmpty {
-                        HStack {
-                            Text("类别")
-                            Spacer()
-                            Text(category)
-                                .foregroundColor(.gray)
-                        }
-                        Button("重新分析类别") {
-                            suggestCategory()
-                        }
-                    }
-                    
-                    if isLoadingPrice {
-                        HStack {
-                            Text("正在估算价格...")
-                            Spacer()
-                            ProgressView()
-                        }
-                    } else if estimatedPrice > 0 {
-                        HStack {
-                            Text("预估价格")
-                            Spacer()
-                            Text("¥\(String(format: "%.2f", estimatedPrice))")
-                                .foregroundColor(.gray)
-                        }
-                        Button("重新估算价格") {
-                            estimatePrice()
-                        }
-                    }
-                }
-                
-                Section("图片") {
-                    HStack {
-                        Spacer()
-                        if let image = selectedImage {
-                            Image(uiImage: image)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(height: 200)
-                        } else {
-                            VStack {
-                                Image(systemName: "photo")
-                                    .font(.largeTitle)
-                                    .foregroundColor(.gray)
-                                Text("添加图片")
-                                    .font(.caption)
-                                    .foregroundColor(.gray)
-                            }
-                            .frame(height: 200)
-                        }
-                        Spacer()
-                    }
-                    .onTapGesture {
-                        showingImagePicker = true
-                    }
+                } header: {
+                    Text("存放位置")
                 }
             }
             .navigationTitle("添加物品")
@@ -122,22 +111,11 @@ struct AddItemView: View {
                         dismiss()
                     }
                 }
-                
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("保存") {
-                        let imageData = selectedImage?.jpegData(compressionQuality: 0.8)
-                        let item = Item(
-                            name: name,
-                            description: description,
-                            location: selectedLocation?.fullPath ?? "",
-                            category: category,
-                            estimatedPrice: estimatedPrice,
-                            imageData: imageData
-                        )
-                        itemManager.addItem(item)
-                        dismiss()
+                        saveItem()
                     }
-                    .disabled(name.isEmpty || selectedLocation == nil)
+                    .disabled(name.isEmpty || selectedLocation == nil || selectedImage == nil)
                 }
             }
             .actionSheet(isPresented: $showingImagePicker) {
@@ -145,14 +123,10 @@ struct AddItemView: View {
                     title: Text("选择图片来源"),
                     buttons: [
                         .default(Text("拍照")) {
-                            imageSource = .camera
                             showingCamera = true
-                            showingImagePicker = false
                         },
                         .default(Text("从相册选择")) {
-                            imageSource = .photoLibrary
                             showingPhotoLibrary = true
-                            showingImagePicker = false
                         },
                         .cancel()
                     ]
@@ -160,9 +134,19 @@ struct AddItemView: View {
             }
             .sheet(isPresented: $showingCamera) {
                 CameraView(image: $selectedImage)
+                    .onDisappear {
+                        if let image = selectedImage {
+                            analyzeItem()
+                        }
+                    }
             }
             .sheet(isPresented: $showingPhotoLibrary) {
                 ImagePicker(image: $selectedImage)
+                    .onDisappear {
+                        if let image = selectedImage {
+                            analyzeItem()
+                        }
+                    }
             }
             .sheet(isPresented: $showingLocationPicker) {
                 LocationPickerView(selectedLocation: $selectedLocation)
@@ -170,56 +154,35 @@ struct AddItemView: View {
         }
     }
     
-    private func suggestCategory() {
-        guard !isLoadingCategory else { return }
-        guard !name.isEmpty && !description.isEmpty else { return }
+    private func analyzeItem() {
+        guard let image = selectedImage,
+              let imageData = image.jpegData(compressionQuality: 0.8) else {
+            return
+        }
         
-        isLoadingCategory = true
-        category = ""  // 清空旧的类别
-        estimatedPrice = 0  // 清空旧的价格
-        
-        let tempItem = Item(name: name, description: description)
-        print("开始分析物品类别: \(name)")
-        
-        AIService.shared.suggestCategory(for: tempItem) { suggestedCategory in
-            DispatchQueue.main.async {
-                print("收到类别建议: \(suggestedCategory ?? "nil")")
-                isLoadingCategory = false
-                
-                if let category = suggestedCategory {
-                    self.category = category
-                    // 获取到类别后估算价格
-                    self.estimatePrice()
-                }
-            }
+        isAnalyzing = true
+        AIService.shared.analyzeItem(name: name, imageData: imageData) { desc, cat, price in
+            description = desc
+            category = cat
+            estimatedPrice = price
+            isAnalyzing = false
         }
     }
     
-    private func estimatePrice() {
-        guard !isLoadingPrice else { return }
-        guard !category.isEmpty else { return }
+    private func saveItem() {
+        guard let imageData = selectedImage?.jpegData(compressionQuality: 0.8),
+              let location = selectedLocation?.fullPath else { return }
         
-        isLoadingPrice = true
-        estimatedPrice = 0  // 清空旧的价格
-        
-        let tempItem = Item(
+        let item = Item(
             name: name,
             description: description,
-            category: category
+            location: location,
+            category: category,
+            estimatedPrice: estimatedPrice,
+            imageData: imageData
         )
         
-        print("开始估算物品价格: \(name)")
-        AIService.shared.estimatePrice(for: tempItem) { estimatedValue in
-            DispatchQueue.main.async {
-                print("收到价格估算: \(estimatedValue ?? 0.0)")
-                isLoadingPrice = false
-                
-                if let price = estimatedValue {
-                    self.estimatedPrice = price
-                }
-            }
-        }
+        itemManager.addItem(item)
+        dismiss()
     }
 }
-
-// Removed CameraView and ImagePicker as they are now in Components folder

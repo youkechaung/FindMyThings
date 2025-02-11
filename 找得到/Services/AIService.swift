@@ -1,5 +1,25 @@
 import Foundation
 
+// Response structures for AI API
+struct ChatResponse: Codable {
+    let choices: [ChatChoice]
+}
+
+struct ChatChoice: Codable {
+    let message: ChatMessage
+    let finishReason: String?
+    
+    enum CodingKeys: String, CodingKey {
+        case message
+        case finishReason = "finish_reason"
+    }
+}
+
+struct ChatMessage: Codable {
+    let role: String
+    let content: String
+}
+
 class AIService {
     static let shared = AIService()
     private let apiKey = "sk-yIkBArpEqL1qpI3vj5p0vh0dR1Z6BI7YaBRnTmdVDvho3cYH"
@@ -50,51 +70,35 @@ class AIService {
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
+        let messages: [[String: Any]] = [
+            ["role": "system", "content": systemPrompt],
+            ["role": "user", "content": query]
+        ]
+        
         let requestBody: [String: Any] = [
             "model": "moonshot-v1-8k",
-            "messages": [
-                ["role": "system", "content": systemPrompt],
-                ["role": "user", "content": query]
-            ]
+            "messages": messages
         ]
         
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
-            print("发送请求，系统提示：\(systemPrompt)")
-            print("用户查询：\(query)")
         } catch {
-            print("请求体序列化失败: \(error)")
             completion(nil)
             return
         }
-
+        
         performRequest(request: request) { data, error in
-            if let error = error {
-                print("请求失败: \(error)")
-                completion(nil)
-                return
-            }
-            
-            guard let data = data else {
-                print("没有收到数据")
-                completion(nil)
-                return
-            }
-            
-            if let responseJSON = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] {
-                print("收到响应: \(responseJSON)")
-                if let choices = responseJSON["choices"] as? [[String: Any]],
-                   let message = choices.first?["message"] as? [String: Any],
-                   let content = message["content"] as? String {
-                    print("成功解析响应")
-                    completion(content)
-                } else {
-                    print("响应内容解析失败")
+            guard let data = data,
+                  let response = try? JSONDecoder().decode(ChatResponse.self, from: data),
+                  let content = response.choices.first?.message.content else {
+                DispatchQueue.main.async {
                     completion(nil)
                 }
-            } else {
-                print("响应 JSON 解析失败")
-                completion(nil)
+                return
+            }
+            
+            DispatchQueue.main.async {
+                completion(content)
             }
         }
     }
@@ -248,6 +252,95 @@ class AIService {
             } else {
                 print("响应解析失败")
                 completion(nil)
+            }
+        }
+    }
+
+    func analyzeItem(name: String, imageData: Data, completion: @escaping (String, String, Double) -> Void) {
+        guard let base64String = imageData.base64EncodedString().addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            print("图片编码失败")
+            completion("无法分析物品", "其他", 0.0)
+            return
+        }
+        
+        let query = """
+        这是一个名为"\(name)"的物品。请根据图片分析这个物品，并按以下格式返回信息：
+
+        描述：[详细描述物品的外观、材质、状况等]
+        类别：[给出最合适的物品类别]
+        价格：[估算物品的价格，单位人民币，只返回数字]
+
+        请确保返回的格式严格按照上述模板，每个部分单独一行。
+        """
+        
+        let systemPrompt = """
+        你是一个物品分析助手，专门帮助用户分析物品的详细信息。
+        请仔细观察图片中的物品，结合物品名称，给出准确的描述、合适的类别和合理的价格估算。
+        描述要详细具体，包括物品的外观特征、材质、状况等。
+        类别要简洁准确，选择最合适的分类。
+        价格估算要合理，考虑物品的品质和市场价值。
+        """
+        
+        let messages: [[String: Any]] = [
+            ["role": "system", "content": systemPrompt],
+            ["role": "user", "content": [
+                ["type": "text", "text": query],
+                ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64,\(base64String)"]]
+            ]]
+        ]
+        
+        let requestBody: [String: Any] = [
+            "model": "moonshot-v1-8k-vision-preview",
+            "messages": messages
+        ]
+        
+        guard let url = URL(string: "https://api.moonshot.cn/v1/chat/completions") else {
+            completion("无法分析物品", "其他", 0.0)
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+        } catch {
+            completion("无法分析物品", "其他", 0.0)
+            return
+        }
+        
+        performRequest(request: request) { data, error in
+            guard let data = data,
+                  let response = try? JSONDecoder().decode(ChatResponse.self, from: data),
+                  let content = response.choices.first?.message.content else {
+                DispatchQueue.main.async {
+                    completion("无法分析物品", "其他", 0.0)
+                }
+                return
+            }
+            
+            // 解析返回的内容
+            let lines = content.components(separatedBy: "\n")
+            var description = "无法分析物品"
+            var category = "其他"
+            var price: Double = 0.0
+            
+            for line in lines {
+                if line.starts(with: "描述：") {
+                    description = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+                } else if line.starts(with: "类别：") {
+                    category = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+                } else if line.starts(with: "价格：") {
+                    let priceText = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+                    let digits = priceText.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
+                    price = Double(digits) ?? 0.0
+                }
+            }
+            
+            DispatchQueue.main.async {
+                completion(description, category, price)
             }
         }
     }
