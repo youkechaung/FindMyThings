@@ -3,6 +3,8 @@ import PhotosUI
 import UIKit
 
 struct ImageAnalysisView: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var itemManager: ItemManager
     @State private var selectedImage: UIImage?
     @State private var showingImagePicker = false
     @State private var showingCamera = false

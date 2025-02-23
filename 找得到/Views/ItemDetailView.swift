@@ -162,8 +162,8 @@ struct ItemDetailView_Previews: PreviewProvider {
         NavigationStack {
             ItemDetailView(item: Item(
                 name: "示例物品",
-                description: "这是一个示例物品",
                 location: "书房",
+                description: "这是一个示例物品",
                 category: "电子产品",
                 estimatedPrice: 100.0,
                 imageData: nil

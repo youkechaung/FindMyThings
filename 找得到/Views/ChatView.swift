@@ -1,117 +1,96 @@
 import SwiftUI
 
-struct Message: Identifiable {
-    let id = UUID()
-    let content: String
-    let isUser: Bool
-    let timestamp = Date()
-}
-
 struct ChatView: View {
-    @State private var messages: [Message] = []
-    @State private var newMessage = ""
-    @State private var isLoading = false
+    @Binding var messages: [Message]
+    @Binding var newMessage: String
+    @Binding var isLoading: Bool
+    @Binding var isRecording: Bool
+    let onSend: () -> Void
+    let onRecord: () -> Void
+    
+    @FocusState private var isFocused: Bool
+    @State private var scrollProxy: ScrollViewProxy?
     
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView {
-                LazyVStack(spacing: 12) {
-                    ForEach(messages) { message in
-                        MessageBubble(message: message)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        if messages.isEmpty {
+                            EmptyMessageView()
+                        }
+                        
+                        ForEach(messages) { message in
+                            MessageBubble(message: message)
+                                .id(message.id)
+                        }
+                        
+                        if isLoading {
+                            HStack {
+                                Spacer()
+                                ProgressView()
+                                    .padding()
+                                Spacer()
+                            }
+                        }
                     }
-                    if isLoading {
-                        HStack {
-                            Spacer()
-                            ProgressView()
-                                .padding()
-                            Spacer()
+                    .padding()
+                }
+                .frame(height: 200)
+                .onChange(of: messages) { _ in
+                    if let lastMessage = messages.last {
+                        withAnimation {
+                            proxy.scrollTo(lastMessage.id, anchor: .bottom)
                         }
                     }
                 }
-                .padding()
+                .onAppear {
+                    scrollProxy = proxy
+                }
             }
             
             Divider()
             
             HStack(spacing: 8) {
-                TextField("输入消息...", text: $newMessage)
+                TextField("问问AI助手...", text: $newMessage)
                     .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .disabled(isLoading)
+                    .disabled(isLoading || isRecording)
+                    .focused($isFocused)
+                    .submitLabel(.send)
+                    .onSubmit {
+                        if !newMessage.isEmpty && !isLoading {
+                            onSend()
+                        }
+                    }
                 
-                Button {
-                    sendMessage()
-                } label: {
+                Button(action: onRecord) {
+                    Image(systemName: isRecording ? "mic.fill" : "mic")
+                        .font(.title2)
+                        .foregroundColor(isRecording ? .red : .blue)
+                }
+                .disabled(isFocused)
+                
+                Button(action: onSend) {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.title2)
                         .foregroundColor(newMessage.isEmpty || isLoading ? .gray : .blue)
                 }
                 .disabled(newMessage.isEmpty || isLoading)
             }
-            .padding()
+            .padding(.horizontal)
+            .padding(.vertical, 8)
         }
-    }
-    
-    private func sendMessage() {
-        let userMessage = Message(content: newMessage, isUser: true)
-        messages.append(userMessage)
-        
-        let userInput = newMessage
-        newMessage = ""
-        isLoading = true
-        
-        // 创建系统提示
-        let systemPrompt = """
-        你是一个友好的AI助手，可以帮助用户管理和整理他们的物品。
-        你可以：
-        1. 给出物品存放建议
-        2. 帮助用户决定是否保留某些物品
-        3. 提供物品保养和维护建议
-        4. 推荐物品的使用方法
-        5. 回答关于物品管理的任何问题
-        请用简短、友好的方式回答。
-        """
-        
-        AIService.shared.performWebSearch(query: userInput, systemPrompt: systemPrompt) { response in
-            DispatchQueue.main.async {
-                isLoading = false
-                if let response = response {
-                    let aiMessage = Message(content: response, isUser: false)
-                    messages.append(aiMessage)
-                } else {
-                    let errorMessage = Message(content: "抱歉，我现在无法回答。请稍后再试。", isUser: false)
-                    messages.append(errorMessage)
-                }
-            }
-        }
-    }
-}
-
-struct MessageBubble: View {
-    let message: Message
-    
-    var body: some View {
-        HStack {
-            if message.isUser { Spacer() }
-            
-            Text(message.content)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .background(message.isUser ? Color.blue : Color.gray.opacity(0.2))
-                .foregroundColor(message.isUser ? .white : .primary)
-                .cornerRadius(20)
-                .contextMenu {
-                    Button(action: {
-                        UIPasteboard.general.string = message.content
-                    }) {
-                        Label("复制", systemImage: "doc.on.doc")
-                    }
-                }
-            
-            if !message.isUser { Spacer() }
-        }
+        .background(Color.gray.opacity(0.05))
     }
 }
 
 #Preview {
-    ChatView()
+    ChatView(
+        messages: .constant([Message(content: "Hello", isUser: true)]),
+        newMessage: .constant(""),
+        isLoading: .constant(false),
+        isRecording: .constant(false),
+        onSend: {},
+        onRecord: {}
+    )
 }

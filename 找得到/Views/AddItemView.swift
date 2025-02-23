@@ -3,7 +3,7 @@ import PhotosUI
 
 struct AddItemView: View {
     @Environment(\.dismiss) private var dismiss
-    @ObservedObject var itemManager: ItemManager
+    @EnvironmentObject private var itemManager: ItemManager
     @StateObject private var locationManager = LocationManager.shared
     
     @State private var name = ""
@@ -161,7 +161,8 @@ struct AddItemView: View {
         }
         
         isAnalyzing = true
-        AIService.shared.analyzeItem(name: name, imageData: imageData) { desc, cat, price in
+        AIService.shared.analyzeItem(imageData: imageData) { itemName, desc, cat, price in
+            name = itemName
             description = desc
             category = cat
             estimatedPrice = price
@@ -175,10 +176,10 @@ struct AddItemView: View {
         
         let item = Item(
             name: name,
-            description: description,
             location: location,
+            description: description,
             category: category,
-            estimatedPrice: estimatedPrice,
+            estimatedPrice: Double(estimatedPrice) ?? 0,
             imageData: imageData
         )
         

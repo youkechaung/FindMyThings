@@ -25,6 +25,10 @@ class AIService {
     private let apiKey = "sk-yIkBArpEqL1qpI3vj5p0vh0dR1Z6BI7YaBRnTmdVDvho3cYH"
     private var lastRequestTime: Date?
     private let minimumRequestInterval: TimeInterval = 1 // 1秒
+    private var retryCount = 0
+    private let maxRetries = 3
+    
+    private init() {}
     
     private func canMakeRequest() -> Bool {
         if let lastRequest = lastRequestTime {
@@ -32,6 +36,23 @@ class AIService {
             return timeSinceLastRequest >= minimumRequestInterval
         }
         return true
+    }
+    
+    private func handleRateLimitError(completion: @escaping (String?) -> Void) {
+        retryCount += 1
+        if retryCount <= maxRetries {
+            print("达到速率限制，等待后重试（第 \(retryCount) 次）...")
+            DispatchQueue.global().asyncAfter(deadline: .now() + Double(retryCount * 5)) {
+                self.retryCount = 0
+                self.performWebSearch(query: "重试请求", systemPrompt: "重试系统提示", completion: completion)
+            }
+        } else {
+            print("达到最大重试次数")
+            retryCount = 0
+            DispatchQueue.main.async {
+                completion(nil)
+            }
+        }
     }
     
     private func performRequest(request: URLRequest, completion: @escaping (Data?, Error?) -> Void) {
@@ -45,6 +66,19 @@ class AIService {
         }
         
         print("发送请求...")
+        if let url = request.url?.absoluteString {
+            print("请求 URL: \(url)")
+        }
+        
+        print("请求头:")
+        request.allHTTPHeaderFields?.forEach { key, value in
+            print("\(key): \(value)")
+        }
+        
+        if let body = request.httpBody, let bodyString = String(data: body, encoding: .utf8) {
+            print("请求体: \(bodyString)")
+        }
+        
         lastRequestTime = Date()
         
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
@@ -54,8 +88,8 @@ class AIService {
                 return
             }
             
-            if let httpResponse = response as? HTTPURLResponse {
-                print("Response status code: \(httpResponse.statusCode)")
+            if let data = data, let responseString = String(data: data, encoding: .utf8) {
+                print("响应数据: \(responseString)")
             }
             
             completion(data, nil)
@@ -64,41 +98,85 @@ class AIService {
     }
 
     func performWebSearch(query: String, systemPrompt: String, completion: @escaping (String?) -> Void) {
-        guard let url = URL(string: "https://api.moonshot.cn/v1/chat/completions") else { return }
+        guard let url = URL(string: "https://api.moonshot.cn/v1/chat/completions") else {
+            print("Invalid URL")
+            completion(nil)
+            return
+        }
+        
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
-        let messages: [[String: Any]] = [
-            ["role": "system", "content": systemPrompt],
-            ["role": "user", "content": query]
-        ]
-        
         let requestBody: [String: Any] = [
             "model": "moonshot-v1-8k",
-            "messages": messages
+            "messages": [
+                [
+                    "role": "system",
+                    "content": systemPrompt
+                ],
+                [
+                    "role": "user",
+                    "content": query
+                ]
+            ],
+            "temperature": 0.7,
+            "stream": false
         ]
         
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+            print("发送请求到 AI 服务...")
+            print("系统提示：\(systemPrompt)")
+            print("用户问题：\(query)")
         } catch {
+            print("Failed to serialize request body: \(error)")
             completion(nil)
             return
         }
         
         performRequest(request: request) { data, error in
-            guard let data = data,
-                  let response = try? JSONDecoder().decode(ChatResponse.self, from: data),
-                  let content = response.choices.first?.message.content else {
+            if let error = error {
+                print("AI 服务请求失败: \(error)")
                 DispatchQueue.main.async {
                     completion(nil)
                 }
                 return
             }
             
-            DispatchQueue.main.async {
-                completion(content)
+            guard let data = data else {
+                print("AI 服务返回空数据")
+                DispatchQueue.main.async {
+                    completion(nil)
+                }
+                return
+            }
+            
+            // 打印原始响应数据以便调试
+            if let responseString = String(data: data, encoding: .utf8) {
+                print("AI 服务响应：\(responseString)")
+            }
+            
+            do {
+                let response = try JSONDecoder().decode(ChatResponse.self, from: data)
+                if let content = response.choices.first?.message.content {
+                    print("AI 回答：\(content)")
+                    DispatchQueue.main.async {
+                        completion(content)
+                    }
+                } else {
+                    print("AI 响应中没有内容")
+                    DispatchQueue.main.async {
+                        completion(nil)
+                    }
+                }
+            } catch {
+                print("解析 AI 响应失败: \(error)")
+                print("原始数据: \(String(data: data, encoding: .utf8) ?? "无法解码")")
+                DispatchQueue.main.async {
+                    completion(nil)
+                }
             }
         }
     }
@@ -256,16 +334,17 @@ class AIService {
         }
     }
 
-    func analyzeItem(name: String, imageData: Data, completion: @escaping (String, String, Double) -> Void) {
+    func analyzeItem(imageData: Data, completion: @escaping (String, String, String, Double) -> Void) {
         guard let base64String = imageData.base64EncodedString().addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
             print("图片编码失败")
-            completion("无法分析物品", "其他", 0.0)
+            completion("未知物品", "无法分析物品", "其他", 0.0)
             return
         }
         
         let query = """
-        这是一个名为"\(name)"的物品。请根据图片分析这个物品，并按以下格式返回信息：
+        请分析这个物品的图片，并按以下格式返回信息：
 
+        名称：[给出简短准确的物品名称]
         描述：[详细描述物品的外观、材质、状况等]
         类别：[给出最合适的物品类别]
         价格：[估算物品的价格，单位人民币，只返回数字]
@@ -275,7 +354,8 @@ class AIService {
         
         let systemPrompt = """
         你是一个物品分析助手，专门帮助用户分析物品的详细信息。
-        请仔细观察图片中的物品，结合物品名称，给出准确的描述、合适的类别和合理的价格估算。
+        请仔细观察图片中的物品，给出准确的名称、详细的描述、合适的类别和合理的价格估算。
+        名称要简短准确，突出物品的主要特征。
         描述要详细具体，包括物品的外观特征、材质、状况等。
         类别要简洁准确，选择最合适的分类。
         价格估算要合理，考虑物品的品质和市场价值。
@@ -295,7 +375,7 @@ class AIService {
         ]
         
         guard let url = URL(string: "https://api.moonshot.cn/v1/chat/completions") else {
-            completion("无法分析物品", "其他", 0.0)
+            completion("未知物品", "无法分析物品", "其他", 0.0)
             return
         }
         
@@ -307,7 +387,7 @@ class AIService {
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
         } catch {
-            completion("无法分析物品", "其他", 0.0)
+            completion("未知物品", "无法分析物品", "其他", 0.0)
             return
         }
         
@@ -316,32 +396,71 @@ class AIService {
                   let response = try? JSONDecoder().decode(ChatResponse.self, from: data),
                   let content = response.choices.first?.message.content else {
                 DispatchQueue.main.async {
-                    completion("无法分析物品", "其他", 0.0)
+                    completion("未知物品", "无法分析物品", "其他", 0.0)
                 }
                 return
             }
             
             // 解析返回的内容
-            let lines = content.components(separatedBy: "\n")
+            let lines = content.components(separatedBy: .newlines)
+            var itemName = "未知物品"
             var description = "无法分析物品"
             var category = "其他"
             var price: Double = 0.0
             
             for line in lines {
-                if line.starts(with: "描述：") {
+                if line.hasPrefix("名称：") {
+                    itemName = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+                } else if line.hasPrefix("描述：") {
                     description = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
-                } else if line.starts(with: "类别：") {
+                } else if line.hasPrefix("类别：") {
                     category = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
-                } else if line.starts(with: "价格：") {
-                    let priceText = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
-                    let digits = priceText.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
-                    price = Double(digits) ?? 0.0
+                } else if line.hasPrefix("价格：") {
+                    if let priceStr = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces).components(separatedBy: .whitespaces).first {
+                        price = Double(priceStr) ?? 0.0
+                    }
                 }
             }
             
             DispatchQueue.main.async {
-                completion(description, category, price)
+                completion(itemName, description, category, price)
             }
         }
+    }
+    
+    func generateItemsPrompt(_ items: [Item]) -> String {
+        // 创建物品信息摘要
+        let itemsList = items.map { item in
+            """
+            - \(item.name)：
+              位置：\(item.location)
+              价格：\(String(format: "%.2f", item.estimatedPrice))元
+              状态：\(item.isInUse ? "使用中" : "可用")
+              描述：\(item.description)
+              分类：\(item.category)
+            """
+        }.joined(separator: "\n")
+        
+        // 创建系统提示
+        return """
+        你是一个智能助手，帮助用户管理和查找他们的物品。根据以下物品信息回答用户的问题：
+
+        物品列表：
+        \(itemsList)
+
+        统计信息：
+        - 物品总数：\(items.count)件
+        - 总价值：\(String(format: "%.2f", items.reduce(0) { $0 + $1.estimatedPrice }))元
+        - 使用中物品：\(items.filter { $0.isInUse }.count)件
+        - 可用物品：\(items.filter { !$0.isInUse }.count)件
+        - 位置分布：\(Dictionary(grouping: items) { $0.location }.map { "\($0.key): \($0.value.count)件" }.joined(separator: "、"))
+
+        请用简短的语言回答用户的问题。如果问题涉及具体物品，请提供该物品的位置、价格和使用状态等信息。
+        """
+    }
+    
+    func queryAboutItems(_ query: String, items: [Item], completion: @escaping (String?) -> Void) {
+        let systemPrompt = generateItemsPrompt(items)
+        performWebSearch(query: query, systemPrompt: systemPrompt, completion: completion)
     }
 }
