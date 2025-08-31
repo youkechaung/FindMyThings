@@ -9,7 +9,7 @@ struct LocationPickerView: View {
     @State private var path: [Location] = []
     
     var body: some View {
-        NavigationStack(path: $path) {
+        NavigationView {
             LocationListView(
                 currentLocation: nil,
                 selectedLocation: $selectedLocation,
@@ -18,14 +18,6 @@ struct LocationPickerView: View {
             )
             .navigationTitle("选择位置")
             .navigationBarTitleDisplayMode(.inline)
-            .navigationDestination(for: Location.self) { location in
-                LocationListView(
-                    currentLocation: location,
-                    selectedLocation: $selectedLocation,
-                    path: $path,
-                    dismiss: dismiss
-                )
-            }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("取消") {
@@ -67,21 +59,36 @@ struct LocationListView: View {
             
             Section {
                 ForEach(currentLocation == nil ? locationManager.getRootLocations() : locationManager.getChildren(of: currentLocation!)) { location in
-                    Button {
-                        path.append(location)
-                    } label: {
-                        HStack {
-                            VStack(alignment: .leading) {
-                                Text(location.name)
-                                if !locationManager.getChildren(of: location).isEmpty {
-                                    Text("\(locationManager.getChildren(of: location).count) 个子位置")
-                                        .font(.caption)
-                                        .foregroundColor(.gray)
+                    HStack {
+                        Button {
+                            selectedLocation = location
+                            dismiss()
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text(location.name)
+                                    if !locationManager.getChildren(of: location).isEmpty {
+                                        Text("\(locationManager.getChildren(of: location).count) 个子位置")
+                                            .font(.caption)
+                                            .foregroundColor(.gray)
+                                    }
                                 }
+                                Spacer()
                             }
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .foregroundColor(.gray)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        
+                        if !locationManager.getChildren(of: location).isEmpty {
+                            NavigationLink(destination: LocationListView(
+                                currentLocation: location,
+                                selectedLocation: $selectedLocation,
+                                path: $path,
+                                dismiss: dismiss
+                            )) {
+                                Image(systemName: "chevron.right")
+                                    .foregroundColor(.gray)
+                            }
+                            .buttonStyle(PlainButtonStyle())
                         }
                     }
                     .swipeActions(edge: .trailing) {
@@ -126,6 +133,28 @@ struct LocationListView: View {
                     newLocationName = ""
                 }
             }
+        }
+    }
+}
+
+struct LocationRow: View {
+    let location: Location
+    @Binding var selectedLocation: Location?
+    let dismiss: DismissAction
+    
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading) {
+                Text(location.name)
+                if !LocationManager.shared.getChildren(of: location).isEmpty {
+                    Text("\(LocationManager.shared.getChildren(of: location).count) 个子位置")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                }
+            }
+            Spacer()
+            Image(systemName: "chevron.right")
+                .foregroundColor(.gray)
         }
     }
 }

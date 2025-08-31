@@ -18,7 +18,7 @@ struct ImageAnalysisView: View {
     }
     
     var body: some View {
-        NavigationStack {
+        NavigationView {
             ScrollView {
                 VStack(spacing: 20) {
                     // 图片显示区域

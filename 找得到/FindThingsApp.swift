@@ -8,6 +8,10 @@ struct FindThingsApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(itemManager)
+                .onAppear {
+                    // 为现有物品分配编号
+                    itemManager.assignItemNumbers()
+                }
         }
     }
 }

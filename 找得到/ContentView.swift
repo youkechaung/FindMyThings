@@ -13,6 +13,7 @@ struct ContentView: View {
     @EnvironmentObject private var itemManager: ItemManager
     @State private var showingAddItem = false
     @State private var showingImageAnalysis = false
+    @State private var showingChat = false
     @State private var searchText = ""
     @State private var messages: [Message] = []
     @State private var newMessage = ""
@@ -29,17 +30,56 @@ struct ContentView: View {
     private let audioEngine = AVAudioEngine()
     
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                SearchBar(text: $searchText)
-                    .padding()
-                
-                ItemListView(
-                    items: itemManager.searchItems(query: searchText),
-                    itemManager: itemManager
-                )
-                .ignoresSafeArea(.keyboard)
-                
+        TabView {
+            // 主页 - 物品管理
+            HomeView(
+                searchText: $searchText,
+                itemManager: itemManager,
+                showingAddItem: $showingAddItem,
+                showingImageAnalysis: $showingImageAnalysis
+            )
+            .tabItem {
+                Image(systemName: "house.fill")
+                Text("首页")
+            }
+            
+            // 搜索页面
+            SearchView(itemManager: itemManager)
+            .tabItem {
+                Image(systemName: "magnifyingglass")
+                Text("搜索")
+            }
+            
+            // 统计页面
+            StatsView(itemManager: itemManager)
+            .tabItem {
+                Image(systemName: "chart.bar.fill")
+                Text("统计")
+            }
+            
+            // 聊天页面
+            ChatTabView(
+                messages: $messages,
+                newMessage: $newMessage,
+                isLoading: $isLoading,
+                isRecording: $isRecording,
+                onSend: sendMessage,
+                onRecord: toggleRecording
+            )
+            .tabItem {
+                        Image(systemName: "message.fill")
+                Text("管家")
+            }
+            
+            // 设置页面
+            SettingsView(itemManager: itemManager)
+            .tabItem {
+                Image(systemName: "gearshape.fill")
+                Text("设置")
+            }
+        }
+        .accentColor(.blue)
+            .fullScreenCover(isPresented: $showingChat) {
                 ChatView(
                     messages: $messages,
                     newMessage: $newMessage,
@@ -48,23 +88,6 @@ struct ContentView: View {
                     onSend: sendMessage,
                     onRecord: toggleRecording
                 )
-                .ignoresSafeArea(.keyboard)
-            }
-            .navigationTitle("找得到")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    AddButton(
-                        showingAddItem: $showingAddItem,
-                        showingImageAnalysis: $showingImageAnalysis
-                    )
-                }
-            }
-            .sheet(isPresented: $showingAddItem) {
-                AddItemView()
-            }
-            .sheet(isPresented: $showingImageAnalysis) {
-                ImageAnalysisView()
-                    .environmentObject(itemManager)
             }
             .alert("语音识别", isPresented: $showingSpeechAlert) {
                 Button("确定", role: .cancel) { }
@@ -77,7 +100,6 @@ struct ContentView: View {
             }
             .onDisappear {
                 removeKeyboardNotifications()
-            }
         }
     }
     
@@ -400,101 +422,1044 @@ struct ContentView: View {
     }
 }
 
-// MARK: - 子视图
+// MARK: - HomeView
 
-struct ItemListView: View {
-    let items: [Item]
-    let itemManager: ItemManager
+struct HomeView: View {
+    @Binding var searchText: String
+    @ObservedObject var itemManager: ItemManager
+    @Binding var showingAddItem: Bool
+    @Binding var showingImageAnalysis: Bool
+    @State private var showingBatchAdd = false
     
     var body: some View {
-        List {
-            ForEach(items) { item in
-                NavigationLink(destination: ItemDetailView(item: item, itemManager: itemManager)) {
-                    ItemRowView(item: item, itemManager: itemManager)
+        NavigationView {
+            VStack(spacing: 0) {
+                // 搜索栏
+                SearchBar(text: $searchText)
+                    .padding(.horizontal)
+                    .padding(.top)
+                    .padding(.bottom, 8)
+                
+                // 分类网格
+                CategoryListView(
+                    items: itemManager.searchItems(query: searchText),
+                    itemManager: itemManager
+                )
+            }
+            .navigationTitle("物品管理")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Menu {
+                        Button(action: { showingAddItem = true }) {
+                            Label("添加新物品", systemImage: "square.and.pencil")
+                        }
+                        Button(action: { showingImageAnalysis = true }) {
+                            Label("单个物品分析", systemImage: "camera")
+                        }
+                        Button(action: { showingBatchAdd = true }) {
+                            Label("批量添加", systemImage: "photo.on.rectangle.angled")
+                        }
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.title2)
+                            .foregroundColor(.blue)
+                    }
                 }
             }
-            .onDelete { indexSet in
-                // 处理删除
-                indexSet.forEach { index in
-                    let item = itemManager.items[index]
-                    itemManager.deleteItem(item)
-                }
+            .sheet(isPresented: $showingAddItem) {
+                AddItemView()
+                    .environmentObject(itemManager)
+            }
+            .sheet(isPresented: $showingImageAnalysis) {
+                ImageAnalysisView()
+                    .environmentObject(itemManager)
+            }
+            .sheet(isPresented: $showingBatchAdd) {
+                BatchAddItemsView()
+                    .environmentObject(itemManager)
             }
         }
     }
 }
 
-struct ItemRowView: View {
+// MARK: - StatsCardView
+
+struct StatsCardView: View {
+    @ObservedObject var itemManager: ItemManager
+    
+    var body: some View {
+        HStack(spacing: 16) {
+            // 总价值
+            StatItemView(
+                icon: "yensign.circle.fill",
+                title: "总价值",
+                value: "¥\(String(format: "%.0f", itemManager.items.reduce(0) { $0 + $1.estimatedPrice }))",
+                color: .green
+            )
+            
+            // 物品数量
+            StatItemView(
+                icon: "cube.box.fill",
+                title: "物品数量",
+                value: "\(itemManager.items.count)件",
+                color: .blue
+            )
+            
+            // 使用中物品
+            StatItemView(
+                icon: "hand.raised.fill",
+                title: "使用中",
+                value: "\(itemManager.getInUseItems().count)件",
+                color: .orange
+            )
+        }
+        .padding()
+        .background(Color(.systemBackground))
+        .cornerRadius(16)
+        .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 4)
+    }
+}
+
+// MARK: - StatItemView
+
+struct StatItemView: View {
+    let icon: String
+    let title: String
+    let value: String
+    let color: Color
+    
+    var body: some View {
+        VStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.title2)
+                .foregroundColor(color)
+            
+            Text(title)
+                .font(.caption)
+                .foregroundColor(.secondary)
+            
+            Text(value)
+                .font(.headline)
+                .fontWeight(.semibold)
+                .foregroundColor(.primary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+// MARK: - SearchView
+
+struct SearchView: View {
+    @ObservedObject var itemManager: ItemManager
+    @State private var searchText = ""
+    @State private var selectedCategory = ""
+    
+    var filteredItems: [Item] {
+        var items = itemManager.items
+        
+        if !searchText.isEmpty {
+            items = items.filter { item in
+                item.name.localizedCaseInsensitiveContains(searchText) ||
+                item.description.localizedCaseInsensitiveContains(searchText) ||
+                item.location.localizedCaseInsensitiveContains(searchText) ||
+                item.itemNumber.localizedCaseInsensitiveContains(searchText)
+            }
+        }
+        
+        if !selectedCategory.isEmpty {
+            items = items.filter { $0.category == selectedCategory }
+        }
+        
+        return items.sorted { $0.itemNumber < $1.itemNumber }
+    }
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 0) {
+                // 搜索栏
+                SearchBar(text: $searchText)
+                    .padding()
+                
+                // 类别筛选
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        CategoryFilterButton(
+                            title: "全部",
+                            isSelected: selectedCategory.isEmpty,
+                            action: { selectedCategory = "" }
+                        )
+                        
+                        ForEach(itemManager.getAllAvailableCategories(), id: \.self) { category in
+                            CategoryFilterButton(
+                                title: category,
+                                isSelected: selectedCategory == category,
+                                action: { selectedCategory = category }
+                            )
+                        }
+                    }
+                    .padding(.horizontal)
+                }
+                .padding(.bottom)
+                
+                // 搜索结果
+                if filteredItems.isEmpty {
+                    EmptyStateView(message: "没有找到相关物品")
+                } else {
+                    ScrollView {
+                        LazyVGrid(columns: [
+                            GridItem(.flexible(), spacing: 12),
+                            GridItem(.flexible(), spacing: 12)
+                        ], spacing: 12) {
+                            ForEach(filteredItems) { item in
+                                NavigationLink(destination: ItemDetailView(item: item, itemManager: itemManager)) {
+                                    ItemCardView(item: item, itemManager: itemManager)
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+                        }
+                        .padding()
+                    }
+                }
+            }
+            .navigationTitle("搜索物品")
+        }
+    }
+}
+
+// MARK: - CategoryFilterButton
+
+struct CategoryFilterButton: View {
+    let title: String
+    let isSelected: Bool
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.subheadline)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(isSelected ? Color.blue : Color(.systemGray6))
+                .foregroundColor(isSelected ? .white : .primary)
+                .cornerRadius(20)
+        }
+    }
+}
+
+// MARK: - EmptyStateView
+
+struct EmptyStateView: View {
+    let message: String
+    
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 60))
+                .foregroundColor(.gray)
+            
+            Text(message)
+                .font(.headline)
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// MARK: - StatsView
+
+struct StatsView: View {
+    @ObservedObject var itemManager: ItemManager
+    
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(spacing: 20) {
+                    // 总览统计
+                    OverviewStatsView(itemManager: itemManager)
+                    
+                    // 分类统计
+                    CategoryStatsView(itemManager: itemManager)
+                    
+                    // 价值统计
+                    ValueStatsView(itemManager: itemManager)
+                    
+                    // 使用情况统计
+                    UsageStatsView(itemManager: itemManager)
+                }
+                .padding()
+            }
+            .navigationTitle("统计分析")
+        }
+    }
+}
+
+// MARK: - OverviewStatsView
+
+struct OverviewStatsView: View {
+    @ObservedObject var itemManager: ItemManager
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("总览")
+                .font(.headline)
+                .padding(.horizontal)
+            
+            LazyVGrid(columns: [
+                GridItem(.flexible()),
+                GridItem(.flexible())
+            ], spacing: 16) {
+                StatCardView(
+                    title: "物品总数",
+                    value: "\(itemManager.items.count)",
+                    icon: "cube.box.fill",
+                    color: .blue
+                )
+                
+                StatCardView(
+                    title: "总价值",
+                    value: "¥\(String(format: "%.0f", itemManager.getTotalValue()))",
+                    icon: "yensign.circle.fill",
+                    color: .green
+                )
+                
+                StatCardView(
+                    title: "使用中",
+                    value: "\(itemManager.getInUseItems().count)",
+                    icon: "hand.raised.fill",
+                    color: .orange
+                )
+                
+                StatCardView(
+                    title: "分类数",
+                    value: "\(itemManager.getAllCategories().count)",
+                    icon: "folder.fill",
+                    color: .purple
+                )
+            }
+            .padding(.horizontal)
+        }
+    }
+}
+
+// MARK: - StatCardView
+
+struct StatCardView: View {
+    let title: String
+    let value: String
+    let icon: String
+    let color: Color
+    
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.title)
+                .foregroundColor(color)
+            
+            Text(value)
+                .font(.title2)
+                .fontWeight(.bold)
+                .foregroundColor(.primary)
+            
+            Text(title)
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding()
+        .background(Color(.systemBackground))
+        .cornerRadius(12)
+        .shadow(color: .black.opacity(0.1), radius: 4, x: 0, y: 2)
+    }
+}
+
+// MARK: - CategoryStatsView
+
+struct CategoryStatsView: View {
+    @ObservedObject var itemManager: ItemManager
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("分类统计")
+                .font(.headline)
+                .padding(.horizontal)
+            
+            VStack(spacing: 12) {
+                ForEach(itemManager.getCategoryItemCounts(), id: \.category) { stat in
+                    HStack {
+                        Text(stat.category)
+                            .font(.subheadline)
+                            .foregroundColor(.primary)
+                        
+                        Spacer()
+                        
+                        Text("\(stat.count)件")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundColor(.blue)
+                    }
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                    .background(Color(.systemGray6))
+                    .cornerRadius(8)
+                }
+            }
+            .padding(.horizontal)
+        }
+    }
+}
+
+// MARK: - ValueStatsView
+
+struct ValueStatsView: View {
+    @ObservedObject var itemManager: ItemManager
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("价值分布")
+                .font(.headline)
+                .padding(.horizontal)
+            
+            VStack(spacing: 12) {
+                ForEach(itemManager.getTotalValueByCategory(), id: \.category) { stat in
+                    HStack {
+                        Text(stat.category)
+                            .font(.subheadline)
+                            .foregroundColor(.primary)
+                        
+                        Spacer()
+                        
+                        Text("¥\(String(format: "%.0f", stat.value))")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundColor(.green)
+                    }
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                    .background(Color(.systemGray6))
+                    .cornerRadius(8)
+                }
+            }
+            .padding(.horizontal)
+        }
+    }
+}
+
+// MARK: - UsageStatsView
+
+struct UsageStatsView: View {
+    @ObservedObject var itemManager: ItemManager
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("使用情况")
+                .font(.headline)
+                .padding(.horizontal)
+            
+            let efficiency = itemManager.getUsageEfficiency()
+            
+            VStack(spacing: 16) {
+                UsageGroupView(
+                    title: "高频使用",
+                    items: efficiency.highUsage,
+                    color: .green
+                )
+                
+                UsageGroupView(
+                    title: "低频使用",
+                    items: efficiency.lowUsage,
+                    color: .orange
+                )
+                
+                UsageGroupView(
+                    title: "从未使用",
+                    items: efficiency.unused,
+                    color: .red
+                )
+            }
+            .padding(.horizontal)
+        }
+    }
+}
+
+// MARK: - UsageGroupView
+
+struct UsageGroupView: View {
+    let title: String
+    let items: [Item]
+    let color: Color
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(title)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .foregroundColor(color)
+                
+                Spacer()
+                
+                Text("\(items.count)件")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            
+            if items.isEmpty {
+                Text("暂无数据")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.vertical, 8)
+            } else {
+                ForEach(items.prefix(3)) { item in
+                    Text("• \(item.name)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                
+                if items.count > 3 {
+                    Text("...还有\(items.count - 3)件")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .padding()
+        .background(Color(.systemGray6))
+        .cornerRadius(8)
+    }
+}
+
+// MARK: - ChatTabView
+
+struct ChatTabView: View {
+    @Binding var messages: [Message]
+    @Binding var newMessage: String
+    @Binding var isLoading: Bool
+    @Binding var isRecording: Bool
+    let onSend: () -> Void
+    let onRecord: () -> Void
+    
+    var body: some View {
+        ChatView(
+            messages: $messages,
+            newMessage: $newMessage,
+            isLoading: $isLoading,
+            isRecording: $isRecording,
+            onSend: onSend,
+            onRecord: onRecord
+        )
+    }
+}
+
+// MARK: - SettingsView
+
+struct SettingsView: View {
+    @ObservedObject var itemManager: ItemManager
+    @State private var showingExportAlert = false
+    @State private var showingImportAlert = false
+    
+    var body: some View {
+        NavigationView {
+        List {
+                Section {
+                    SettingsRowView(
+                        icon: "square.and.arrow.up",
+                        title: "导出数据",
+                        action: { showingExportAlert = true }
+                    )
+                    
+                    SettingsRowView(
+                        icon: "square.and.arrow.down",
+                        title: "导入数据",
+                        action: { showingImportAlert = true }
+                    )
+                }
+                
+                Section {
+                    SettingsRowView(
+                        icon: "trash",
+                        title: "清空所有数据",
+                        isDestructive: true,
+                        action: { }
+                    )
+                }
+                
+                Section {
+                    HStack {
+                        Text("版本")
+                        Spacer()
+                        Text("1.0.0")
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .navigationTitle("设置")
+        }
+        .alert("导出数据", isPresented: $showingExportAlert) {
+            Button("确定") { }
+            Button("取消", role: .cancel) { }
+        } message: {
+            Text("导出功能正在开发中")
+        }
+        .alert("导入数据", isPresented: $showingImportAlert) {
+            Button("确定") { }
+            Button("取消", role: .cancel) { }
+        } message: {
+            Text("导入功能正在开发中")
+        }
+    }
+}
+
+// MARK: - SettingsRowView
+
+struct SettingsRowView: View {
+    let icon: String
+    let title: String
+    let isDestructive: Bool
+    let action: () -> Void
+    
+    init(icon: String, title: String, isDestructive: Bool = false, action: @escaping () -> Void) {
+        self.icon = icon
+        self.title = title
+        self.isDestructive = isDestructive
+        self.action = action
+    }
+    
+    var body: some View {
+        Button(action: action) {
+            HStack {
+                Image(systemName: icon)
+                    .foregroundColor(isDestructive ? .red : .blue)
+                    .frame(width: 24)
+                
+                Text(title)
+                    .foregroundColor(isDestructive ? .red : .primary)
+                
+                Spacer()
+                
+                Image(systemName: "chevron.right")
+                    .foregroundColor(.gray)
+                    .font(.caption)
+            }
+        }
+    }
+}
+
+// MARK: - CategoryListView
+
+struct CategoryListView: View {
+    let items: [Item]
+    let itemManager: ItemManager
+    @State private var selectedCategory: String?
+    @State private var draggedCategory: String?
+    
+    // 网格布局配置
+    private let columns = [
+        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 12)
+    ]
+    
+    var body: some View {
+        Group {
+            if let selectedCategory = selectedCategory,
+               let categoryGroup = itemManager.getItemsByCategory().first(where: { $0.category == selectedCategory }) {
+                // 显示选中类别的物品列表
+                CategoryItemsView(
+                    categoryGroup: categoryGroup,
+                    itemManager: itemManager,
+                    onBack: {
+                        self.selectedCategory = nil
+                    }
+                )
+                .transition(.asymmetric(
+                    insertion: .move(edge: .trailing).combined(with: .opacity),
+                    removal: .move(edge: .leading).combined(with: .opacity)
+                ))
+            } else {
+                // 显示分类网格
+                CategoryGridView(
+                    items: items,
+                    itemManager: itemManager,
+                    selectedCategory: $selectedCategory,
+                    draggedCategory: $draggedCategory
+                )
+                .transition(.asymmetric(
+                    insertion: .move(edge: .leading).combined(with: .opacity),
+                    removal: .move(edge: .trailing).combined(with: .opacity)
+                ))
+            }
+        }
+        .animation(.easeInOut(duration: 0.4), value: selectedCategory)
+    }
+}
+
+// MARK: - CategoryGridView
+
+struct CategoryGridView: View {
+    let items: [Item]
+    let itemManager: ItemManager
+    @Binding var selectedCategory: String?
+    @Binding var draggedCategory: String?
+    
+    // 网格布局配置
+    private let columns = [
+        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 12)
+    ]
+    
+    var body: some View {
+        ScrollView {
+            LazyVGrid(columns: columns, spacing: 12) {
+                ForEach(itemManager.getItemsByCategory(), id: \.category) { categoryGroup in
+                    CategoryCardView(
+                        categoryGroup: categoryGroup,
+                        itemManager: itemManager,
+                        isSelected: selectedCategory == categoryGroup.category,
+                        onTap: {
+                            selectedCategory = categoryGroup.category
+                        },
+                        isDragging: draggedCategory == categoryGroup.category
+                    )
+                    .onDrag {
+                        draggedCategory = categoryGroup.category
+                        return NSItemProvider(object: categoryGroup.category as NSString)
+                    }
+                    .onDrop(of: [.text], delegate: DropViewDelegate(
+                        draggedCategory: $draggedCategory,
+                        targetCategory: categoryGroup.category,
+                        itemManager: itemManager
+                    ))
+                }
+            }
+            .padding()
+        }
+    }
+}
+
+// MARK: - CategoryItemsView
+
+struct CategoryItemsView: View {
+    let categoryGroup: (category: String, items: [Item])
+    let itemManager: ItemManager
+    let onBack: () -> Void
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            // 顶部导航栏
+            HStack {
+                Button(action: onBack) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left")
+                            .font(.title3)
+                        Text("返回")
+                    }
+                    .foregroundColor(.blue)
+                }
+                
+                Spacer()
+                
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(categoryGroup.category)
+                        .font(.headline)
+                        .foregroundColor(.primary)
+                    
+                    HStack(spacing: 8) {
+                        Text("\(categoryGroup.items.count)件")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        
+                        if let categoryValue = itemManager.getTotalValueByCategory()
+                            .first(where: { $0.category == categoryGroup.category })?.value {
+                            Text("¥\(String(format: "%.0f", categoryValue))")
+                                .font(.caption)
+                                .foregroundColor(.green)
+                        }
+                    }
+                }
+            }
+            .padding()
+            .background(Color(.systemBackground))
+            .shadow(color: .black.opacity(0.05), radius: 2, x: 0, y: 1)
+            
+            // 物品网格
+            ScrollView {
+                LazyVGrid(columns: [
+                    GridItem(.flexible(), spacing: 12),
+                    GridItem(.flexible(), spacing: 12)
+                ], spacing: 12) {
+                    ForEach(categoryGroup.items) { item in
+                NavigationLink(destination: ItemDetailView(item: item, itemManager: itemManager)) {
+                            ItemCardView(item: item, itemManager: itemManager)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                }
+                .padding()
+            }
+        }
+    }
+}
+
+// MARK: - CategoryCardView
+
+struct CategoryCardView: View {
+    let categoryGroup: (category: String, items: [Item])
+    let itemManager: ItemManager
+    let isSelected: Bool
+    let onTap: () -> Void
+    let isDragging: Bool
+    
+    var body: some View {
+        Button(action: onTap) {
+            VStack(spacing: 8) {
+                // 分类图标
+                Image(systemName: getCategoryIcon(categoryGroup.category))
+                    .font(.title2)
+                    .foregroundColor(isSelected ? .white : .blue)
+                
+                // 分类名称
+                Text(categoryGroup.category)
+                    .font(.headline)
+                    .foregroundColor(isSelected ? .white : .primary)
+                    .multilineTextAlignment(.center)
+                
+                // 统计信息
+                VStack(spacing: 4) {
+                    Text("\(categoryGroup.items.count)件")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .foregroundColor(isSelected ? .white.opacity(0.8) : .secondary)
+                    
+                    if let categoryValue = itemManager.getTotalValueByCategory()
+                        .first(where: { $0.category == categoryGroup.category })?.value {
+                        Text("¥\(String(format: "%.0f", categoryValue))")
+                            .font(.caption)
+                            .foregroundColor(isSelected ? .white.opacity(0.8) : .green)
+                    }
+                }
+                
+                // 选择指示器
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.title3)
+                        .foregroundColor(.white)
+                }
+            }
+            .padding()
+            .frame(maxWidth: .infinity)
+            .background(isSelected ? Color.blue : Color(.systemGray6))
+            .cornerRadius(12)
+            .shadow(color: isSelected ? .blue.opacity(0.3) : .black.opacity(0.1), radius: isSelected ? 4 : 2, x: 0, y: 2)
+        }
+        .buttonStyle(PlainButtonStyle())
+        .scaleEffect(isSelected ? 1.05 : (isDragging ? 0.95 : 1.0))
+        .opacity(isDragging ? 0.5 : 1.0)
+        .animation(.easeInOut(duration: 0.2), value: isSelected)
+        .animation(.easeInOut(duration: 0.1), value: isDragging)
+    }
+    
+    private func getCategoryIcon(_ category: String) -> String {
+        switch category {
+        case "电子产品":
+            return "laptopcomputer"
+        case "衣服":
+            return "tshirt"
+        case "家具":
+            return "bed.double"
+        case "书籍":
+            return "book"
+        case "厨具":
+            return "fork.knife"
+        case "运动用品":
+            return "sportscourt"
+        case "化妆品":
+            return "paintbrush"
+        case "工具":
+            return "wrench.and.screwdriver"
+        case "玩具":
+            return "gamecontroller"
+        case "其他":
+            return "ellipsis.circle"
+        default:
+            return "cube.box"
+        }
+    }
+}
+
+// MARK: - ItemCardView
+
+struct ItemCardView: View {
     let item: Item
     let itemManager: ItemManager
     
     var body: some View {
-        HStack(spacing: 12) {
+        VStack(spacing: 8) {
+            // 物品图片
             if let imageData = item.imageData,
                let uiImage = UIImage(data: imageData) {
                 Image(uiImage: uiImage)
                     .resizable()
                     .scaledToFill()
-                    .frame(width: 60, height: 60)
+                    .frame(height: 120)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
             } else {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(Color.gray.opacity(0.2))
-                    .frame(width: 60, height: 60)
+                    .frame(height: 120)
                     .overlay(
                         Image(systemName: "photo")
                             .foregroundColor(.gray)
+                            .font(.title2)
                     )
             }
             
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(spacing: 4) {
+                // 物品名称
                 Text(item.name)
-                    .font(.headline)
-                Text(item.location)
                     .font(.subheadline)
-                    .foregroundColor(.gray)
-                HStack(spacing: 8) {
-                    if !item.category.isEmpty {
-                        Text(item.category)
-                            .font(.caption)
-                            .padding(.horizontal, 8)
+                    .fontWeight(.medium)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                
+                // 编号
+                Text(item.itemNumber)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(Color.blue.opacity(0.1))
-                            .foregroundColor(.blue)
+                    .background(Color.gray.opacity(0.1))
                             .cornerRadius(4)
-                    }
+                
+                // 位置和价格
+                VStack(spacing: 2) {
+                    Text(item.location)
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                        .lineLimit(1)
+                    
                     if item.estimatedPrice > 0 {
-                        Text("¥\(String(format: "%.2f", item.estimatedPrice))")
+                        Text("¥\(String(format: "%.0f", item.estimatedPrice))")
                             .font(.caption)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 2)
-                            .background(Color.green.opacity(0.1))
                             .foregroundColor(.green)
-                            .cornerRadius(4)
+                            .fontWeight(.medium)
                     }
                 }
+                
+                // 使用状态
                 if item.isInUse {
-                    Text("请放回原处，谢谢")
-                        .font(.caption)
+                    Text("使用中")
+                        .font(.caption2)
                         .foregroundColor(.red)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.red.opacity(0.1))
+                        .cornerRadius(4)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.bottom, 8)
+        }
+        .background(Color(.systemBackground))
+        .cornerRadius(12)
+        .shadow(color: .black.opacity(0.1), radius: 4, x: 0, y: 2)
+    }
+}
+
+// MARK: - CompactItemRowView
+
+struct CompactItemRowView: View {
+    let item: Item
+    let itemManager: ItemManager
+    
+    var body: some View {
+        HStack(spacing: 8) {
+            if let imageData = item.imageData,
+               let uiImage = UIImage(data: imageData) {
+                Image(uiImage: uiImage)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 40, height: 40)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            } else {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.gray.opacity(0.2))
+                    .frame(width: 40, height: 40)
+                    .overlay(
+                        Image(systemName: "photo")
+                            .foregroundColor(.gray)
+                            .font(.caption2)
+                    )
+            }
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.name)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+                
+                HStack(spacing: 4) {
+                    Text(item.location)
+                        .font(.caption2)
+                        .foregroundColor(.gray)
+                        .lineLimit(1)
+                    
+                    if item.estimatedPrice > 0 {
+                        Text("¥\(String(format: "%.0f", item.estimatedPrice))")
+                            .font(.caption2)
+                            .foregroundColor(.green)
+                    }
                 }
             }
             
             Spacer()
             
-            Button {
-                itemManager.toggleItemUse(item)
-            } label: {
-                Text(item.isInUse ? "归还" : "使用")
-                    .font(.caption)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(item.isInUse ? Color.red.opacity(0.1) : Color.blue.opacity(0.1))
-                    .foregroundColor(item.isInUse ? .red : .blue)
-                    .cornerRadius(6)
-            }
+            Text(item.itemNumber)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(3)
         }
+        .padding(.horizontal, 12)
         .padding(.vertical, 8)
+        .background(Color(.systemBackground))
+        .cornerRadius(8)
+        .shadow(color: .black.opacity(0.05), radius: 2, x: 0, y: 1)
+    }
+}
+
+// MARK: - DropViewDelegate
+
+struct DropViewDelegate: DropDelegate {
+    @Binding var draggedCategory: String?
+    let targetCategory: String
+    let itemManager: ItemManager
+    
+    func performDrop(info: DropInfo) -> Bool {
+        guard let draggedCategory = draggedCategory else { return false }
+        
+        // 执行类别移动
+        itemManager.moveCategory(draggedCategory, to: targetCategory)
+        
+        self.draggedCategory = nil
+        return true
+    }
+    
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        return DropProposal(operation: .move)
+    }
+    
+    func validateDrop(info: DropInfo) -> Bool {
+        return draggedCategory != targetCategory
+    }
+    
+    func dropEntered(info: DropInfo) {
+        // 可以在这里添加拖拽进入时的视觉反馈
+    }
+    
+    func dropExited(info: DropInfo) {
+        // 可以在这里添加拖拽离开时的视觉反馈
     }
 }
 
@@ -505,14 +1470,17 @@ struct AddButton: View {
     var body: some View {
         Menu {
             Button(action: { showingAddItem = true }) {
-                Label("添加物品", systemImage: "plus")
+                Label("添加新物品", systemImage: "square.and.pencil")
             }
             
             Button(action: { showingImageAnalysis = true }) {
-                Label("图片分析", systemImage: "camera.viewfinder")
+                Label("物品分析", systemImage: "camera")
             }
         } label: {
-            Image(systemName: "plus")
+            HStack(spacing: 4) {
+                Image(systemName: "plus.circle.fill")
+                Text("添加物品")
+            }
         }
     }
 }
@@ -531,3 +1499,9 @@ struct SearchBar: View {
         .cornerRadius(8)
     }
 }
+
+
+
+
+
+

@@ -1,5 +1,7 @@
 import SwiftUI
 import PhotosUI
+import Photos
+import AVFoundation
 
 struct AddItemView: View {
     @Environment(\.dismiss) private var dismiss
@@ -14,19 +16,44 @@ struct AddItemView: View {
     @State private var selectedImage: UIImage?
     @State private var showingImagePicker = false
     @State private var showingCamera = false
-    @State private var showingPhotoLibrary = false
+    @State private var showingImageSourcePicker = false
     @State private var showingLocationPicker = false
     @State private var isAnalyzing = false
+    @State private var inputMethod: InputMethod = .aiRecognition
+    @State private var showingCategoryPicker = false
+    @State private var newCategory = ""
+    @State private var showingAddCategory = false
+    
+    enum InputMethod {
+        case manual
+        case aiRecognition
+    }
+    
+    // 计算将要生成的编号
+    private var previewItemNumber: String {
+        // 获取当前最大编号并加1
+        let currentMax = itemManager.items.map { item in
+            if let number = Int(item.itemNumber) {
+                return number
+            }
+            return 0
+        }.max() ?? 0
+        return String(format: "%06d", currentMax + 1)
+    }
     
     var body: some View {
-        NavigationStack {
+        NavigationView {
             Form {
                 Section {
-                    TextField("名称", text: $name)
+                    Picker("输入方式", selection: $inputMethod) {
+                        Text("手动输入").tag(InputMethod.manual)
+                        Text("AI识别").tag(InputMethod.aiRecognition)
+                    }
+                    .pickerStyle(SegmentedPickerStyle())
                 }
                 
+                // 图片上传部分
                 Section {
-                    // 图片选择区域
                     VStack {
                         if let image = selectedImage {
                             Image(uiImage: image)
@@ -34,24 +61,69 @@ struct AddItemView: View {
                                 .scaledToFit()
                                 .frame(maxHeight: 200)
                                 .cornerRadius(10)
-                        } else {
-                            Button(action: {
-                                showingImagePicker = true
-                            }) {
-                                VStack {
-                                    Image(systemName: "camera")
-                                        .font(.largeTitle)
-                                        .foregroundColor(.blue)
-                                    Text("拍照或选择照片")
-                                        .foregroundColor(.blue)
+                            
+                            HStack {
+                                Button("更换图片") {
+                                    showingImagePicker = true
                                 }
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                                .background(Color.gray.opacity(0.1))
-                                .cornerRadius(10)
+                                .foregroundColor(.blue)
+                                
+                                Spacer()
+                                
+                                Button("删除图片") {
+                                    selectedImage = nil
+                                }
+                                .foregroundColor(.red)
+                            }
+                            .padding(.top, 8)
+                        } else {
+                            HStack(spacing: 16) {
+                                Button(action: {
+                                    print("点击了相册按钮")
+                                    // 检查相册权限
+                                    let status = PHPhotoLibrary.authorizationStatus()
+                                    print("相册权限状态: \(status.rawValue)")
+                                    showingImageSourcePicker = true
+                                }) {
+                                    VStack {
+                                        Image(systemName: "photo")
+                                            .font(.title2)
+                                            .foregroundColor(.blue)
+                                        Text("相册")
+                                            .font(.caption)
+                                            .foregroundColor(.blue)
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding()
+                                    .background(Color.blue.opacity(0.1))
+                                    .cornerRadius(10)
+                                }
+                                
+                                Button(action: {
+                                    print("点击了拍照按钮")
+                                    // 检查相机权限
+                                    let status = AVCaptureDevice.authorizationStatus(for: .video)
+                                    print("相机权限状态: \(status.rawValue)")
+                                    showingImageSourcePicker = true
+                                }) {
+                                    VStack {
+                                        Image(systemName: "camera")
+                                            .font(.title2)
+                                            .foregroundColor(.green)
+                                        Text("拍照")
+                                            .font(.caption)
+                                            .foregroundColor(.green)
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding()
+                                    .background(Color.green.opacity(0.1))
+                                    .cornerRadius(10)
+                                }
                             }
                         }
                     }
+                } header: {
+                    Text("物品图片")
                 }
                 
                 if isAnalyzing {
@@ -64,16 +136,36 @@ struct AddItemView: View {
                     }
                 } else {
                     Section {
+                        TextField("名称", text: $name)
+                            .disabled(isAnalyzing)
+                    }
+                    
+                    Section {
                         TextEditor(text: $description)
                             .frame(minHeight: 100)
+                            .disabled(isAnalyzing)
                     } header: {
                         Text("物品描述")
                     }
                     
                     Section {
-                        TextField("物品类别", text: $category)
+                        HStack {
+                            Text(category.isEmpty ? "选择类别" : category)
+                                .foregroundColor(category.isEmpty ? .blue : .primary)
+                            Spacer()
+                            Button("选择") {
+                                showingCategoryPicker = true
+                            }
+                            .foregroundColor(.blue)
+                        }
                     } header: {
                         Text("物品类别")
+                    } footer: {
+                        if !category.isEmpty {
+                            Text("将生成编号：\(previewItemNumber)")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
                     }
                     
                     Section {
@@ -81,6 +173,7 @@ struct AddItemView: View {
                             Text("¥")
                             TextField("估算价格", value: $estimatedPrice, format: .number)
                                 .keyboardType(.decimalPad)
+                                .disabled(isAnalyzing)
                         }
                     } header: {
                         Text("估算价格")
@@ -115,10 +208,10 @@ struct AddItemView: View {
                     Button("保存") {
                         saveItem()
                     }
-                    .disabled(name.isEmpty || selectedLocation == nil || selectedImage == nil)
+                    .disabled(name.isEmpty || (inputMethod == .aiRecognition && selectedImage == nil))
                 }
             }
-            .actionSheet(isPresented: $showingImagePicker) {
+            .actionSheet(isPresented: $showingImageSourcePicker) {
                 ActionSheet(
                     title: Text("选择图片来源"),
                     buttons: [
@@ -126,7 +219,7 @@ struct AddItemView: View {
                             showingCamera = true
                         },
                         .default(Text("从相册选择")) {
-                            showingPhotoLibrary = true
+                            showingImagePicker = true
                         },
                         .cancel()
                     ]
@@ -135,21 +228,39 @@ struct AddItemView: View {
             .sheet(isPresented: $showingCamera) {
                 CameraView(image: $selectedImage)
                     .onDisappear {
-                        if let image = selectedImage {
+                        print("相机sheet消失，selectedImage: \(selectedImage != nil)")
+                        if let image = selectedImage, inputMethod == .aiRecognition {
                             analyzeItem()
                         }
                     }
             }
-            .sheet(isPresented: $showingPhotoLibrary) {
+            .sheet(isPresented: $showingImagePicker) {
                 ImagePicker(image: $selectedImage)
                     .onDisappear {
-                        if let image = selectedImage {
+                        print("相册sheet消失，selectedImage: \(selectedImage != nil)")
+                        if let image = selectedImage, inputMethod == .aiRecognition {
                             analyzeItem()
                         }
                     }
             }
             .sheet(isPresented: $showingLocationPicker) {
                 LocationPickerView(selectedLocation: $selectedLocation)
+            }
+            .sheet(isPresented: $showingCategoryPicker) {
+                CategoryPickerView(selectedCategory: $category, itemManager: itemManager)
+            }
+            .alert("添加新类别", isPresented: $showingAddCategory) {
+                TextField("类别名称", text: $newCategory)
+                Button("取消", role: .cancel) { }
+                Button("添加") {
+                    if !newCategory.isEmpty {
+                        itemManager.addCategory(newCategory)
+                        category = newCategory
+                        newCategory = ""
+                    }
+                }
+            } message: {
+                Text("请输入新的类别名称")
             }
         }
     }
@@ -171,19 +282,93 @@ struct AddItemView: View {
     }
     
     private func saveItem() {
-        guard let imageData = selectedImage?.jpegData(compressionQuality: 0.8),
-              let location = selectedLocation?.fullPath else { return }
+        let locationPath = selectedLocation?.fullPath ?? ""
+        
+        let imageData = selectedImage?.jpegData(compressionQuality: 0.8)
         
         let item = Item(
             name: name,
-            location: location,
+            location: locationPath,
             description: description,
             category: category,
-            estimatedPrice: Double(estimatedPrice) ?? 0,
+            estimatedPrice: estimatedPrice,
             imageData: imageData
         )
         
         itemManager.addItem(item)
         dismiss()
+    }
+}
+
+// MARK: - CategoryPickerView
+
+struct CategoryPickerView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var selectedCategory: String
+    @ObservedObject var itemManager: ItemManager
+    @State private var showingAddCategory = false
+    @State private var newCategory = ""
+    
+    var body: some View {
+        NavigationView {
+            List {
+                Section {
+                    ForEach(itemManager.getAllAvailableCategories(), id: \.self) { category in
+                        Button(action: {
+                            selectedCategory = category
+                            dismiss()
+                        }) {
+                            HStack {
+                                Text(category)
+                                    .foregroundColor(.primary)
+                                Spacer()
+                                if selectedCategory == category {
+                                    Image(systemName: "checkmark")
+                                        .foregroundColor(.blue)
+                                }
+                            }
+                        }
+                    }
+                } header: {
+                    Text("选择类别")
+                }
+                
+                Section {
+                    Button(action: {
+                        showingAddCategory = true
+                    }) {
+                        HStack {
+                            Image(systemName: "plus.circle")
+                                .foregroundColor(.blue)
+                            Text("添加新类别")
+                                .foregroundColor(.blue)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("选择类别")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("完成") {
+                        dismiss()
+                    }
+                }
+            }
+            .alert("添加新类别", isPresented: $showingAddCategory) {
+                TextField("类别名称", text: $newCategory)
+                Button("取消", role: .cancel) { }
+                Button("添加") {
+                    if !newCategory.isEmpty {
+                        itemManager.addCategory(newCategory)
+                        selectedCategory = newCategory
+                        newCategory = ""
+                        dismiss()
+                    }
+                }
+            } message: {
+                Text("请输入新的类别名称")
+            }
+        }
     }
 }

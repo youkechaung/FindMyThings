@@ -2,6 +2,7 @@ import Foundation
 
 struct Item: Identifiable, Codable, Equatable {
     let id: UUID
+    var itemNumber: String // 物品编号
     var name: String
     var location: String
     var description: String
@@ -16,8 +17,9 @@ struct Item: Identifiable, Codable, Equatable {
     var imageData: Data?
     var dateCreated: Date
     
-    init(id: UUID = UUID(), name: String, location: String, description: String = "", category: String = "", estimatedPrice: Double = 0, isInUse: Bool = false, imageData: Data? = nil) {
+    init(id: UUID = UUID(), itemNumber: String = "", name: String, location: String, description: String = "", category: String = "", estimatedPrice: Double = 0, isInUse: Bool = false, imageData: Data? = nil) {
         self.id = id
+        self.itemNumber = itemNumber
         self.name = name
         self.location = location
         self.description = description

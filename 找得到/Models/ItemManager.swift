@@ -3,17 +3,88 @@ import SwiftUI
 
 class ItemManager: ObservableObject {
     @Published var items: [Item] = []
+    @Published var categoryOrder: [String] = [] // 添加类别排序
     private let saveKey = "SavedItems"
+    private let categoriesKey = "SavedCategories"
+    private let categoryOrderKey = "CategoryOrder"
+    private let nextItemNumberKey = "NextItemNumber" // 添加下一个物品编号的存储键
+    
+    // 默认类别
+    private let defaultCategories = [
+        "电子产品",
+        "衣服",
+        "家具",
+        "书籍",
+        "厨具",
+        "运动用品",
+        "化妆品",
+        "工具",
+        "玩具",
+        "其他"
+    ]
+    
+    // 用户使用过的类别（包括默认类别）
+    @Published var usedCategories: [String] = []
     
     init() {
         loadItems()
+        loadCategories()
+        loadCategoryOrder()
+        // 确保默认类别存在
+        ensureDefaultCategories()
+        // 为现有物品分配编号（如果没有编号）
+        assignItemNumbers()
+        // 根据现有物品更新类别列表，确保所有类别都被加载
+        updateCategoriesFromExistingItems()
+    }
+    
+    // MARK: - 编号管理
+    
+    // 获取下一个物品编号
+    private func getNextItemNumber() -> Int {
+        let currentNumber = UserDefaults.standard.integer(forKey: nextItemNumberKey)
+        let nextNumber = currentNumber + 1
+        UserDefaults.standard.set(nextNumber, forKey: nextItemNumberKey)
+        return nextNumber
+    }
+    
+    // 生成新的物品编号（全局唯一）
+    func generateItemNumber() -> String {
+        let number = getNextItemNumber()
+        return String(format: "%06d", number) // 格式：000001
+    }
+    
+    // 为现有物品生成编号（如果没有编号或格式不正确）
+    func assignItemNumbers() {
+        var hasChanges = false
+        for i in 0..<items.count {
+            let currentNumber = items[i].itemNumber
+            // 检查编号是否为空或格式不正确（不是6位数字）
+            if currentNumber.isEmpty || currentNumber.count != 6 || !currentNumber.allSatisfy({ $0.isNumber }) {
+                items[i].itemNumber = generateItemNumber()
+                hasChanges = true
+            }
+        }
+        if hasChanges {
+            saveItems()
+        }
     }
     
     // MARK: - 基本操作
     
     func addItem(_ item: Item) {
-        items.append(item)
+        var newItem = item
+        // 如果物品没有编号，自动生成
+        if newItem.itemNumber.isEmpty {
+            newItem.itemNumber = generateItemNumber()
+        }
+        items.append(newItem)
         saveItems()
+        
+        // 确保新物品的类别也被添加到usedCategories和categoryOrder中
+        if !newItem.category.isEmpty {
+            addCategory(newItem.category)
+        }
     }
     
     func updateItem(_ item: Item) {
@@ -61,8 +132,48 @@ class ItemManager: ObservableObject {
             item.name.localizedCaseInsensitiveContains(query) ||
             item.description.localizedCaseInsensitiveContains(query) ||
             item.location.localizedCaseInsensitiveContains(query) ||
-            item.category.localizedCaseInsensitiveContains(query)
+            item.category.localizedCaseInsensitiveContains(query) ||
+            item.itemNumber.localizedCaseInsensitiveContains(query)
         }
+    }
+    
+    // MARK: - 分类管理
+    
+    // 获取所有分类
+    func getAllCategories() -> [String] {
+        Array(Set(items.map { $0.category })).sorted()
+    }
+    
+    // 按分类分组物品（按排序顺序）
+    func getItemsByCategory() -> [(category: String, items: [Item])] {
+        let groupedItems = Dictionary(grouping: items) { $0.category.isEmpty ? "未分类" : $0.category }
+        
+        // 按排序顺序返回结果
+        return categoryOrder.compactMap { category in
+            guard let items = groupedItems[category] else { return nil }
+            return (category: category, items: items.sorted { $0.itemNumber < $1.itemNumber })
+        }
+    }
+    
+    // 按位置分组物品
+    func getItemsByLocation() -> [(location: String, items: [Item])] {
+        Dictionary(grouping: items) { $0.location }
+            .map { (location: $0.key, items: $0.value.sorted { $0.itemNumber < $1.itemNumber }) }
+            .sorted { $0.location < $1.location }
+    }
+    
+    // 获取分类及其物品数量
+    func getCategoryItemCounts() -> [(category: String, count: Int)] {
+        Dictionary(grouping: items) { $0.category.isEmpty ? "未分类" : $0.category }
+            .map { (category: $0.key, count: $0.value.count) }
+            .sorted { $0.category < $1.category }
+    }
+    
+    // 按分类获取总价值
+    func getTotalValueByCategory() -> [(category: String, value: Double)] {
+        Dictionary(grouping: items) { $0.category.isEmpty ? "未分类" : $0.category }
+            .map { (category: $0.key, value: $0.value.reduce(0) { $0 + $1.estimatedPrice }) }
+            .sorted { $0.category < $1.category }
     }
     
     // 按位置查询物品
@@ -87,12 +198,7 @@ class ItemManager: ObservableObject {
         items.reduce(0) { $0 + $1.estimatedPrice }
     }
     
-    // 按类别获取总价值
-    func getTotalValueByCategory() -> [(category: String, value: Double)] {
-        Dictionary(grouping: items) { $0.category }
-            .map { (category: $0.key, value: $0.value.reduce(0) { $0 + $1.estimatedPrice }) }
-            .sorted { $0.category < $1.category }
-    }
+
     
     // 按位置获取总价值
     func getTotalValueByLocation() -> [(location: String, value: Double)] {
@@ -203,6 +309,115 @@ class ItemManager: ObservableObject {
         }
         
         return nil
+    }
+    
+    // MARK: - 类别管理
+    
+    // 加载保存的类别
+    private func loadCategories() {
+        if let savedCategories = UserDefaults.standard.stringArray(forKey: categoriesKey) {
+            usedCategories = savedCategories
+        } else {
+            usedCategories = defaultCategories
+        }
+    }
+    
+    // 保存类别
+    private func saveCategories() {
+        UserDefaults.standard.set(usedCategories, forKey: categoriesKey)
+    }
+    
+    // 加载类别排序
+    private func loadCategoryOrder() {
+        if let savedOrder = UserDefaults.standard.stringArray(forKey: categoryOrderKey) {
+            categoryOrder = savedOrder
+        } else {
+            categoryOrder = defaultCategories
+        }
+    }
+    
+    // 保存类别排序
+    private func saveCategoryOrder() {
+        UserDefaults.standard.set(categoryOrder, forKey: categoryOrderKey)
+    }
+    
+    // 确保默认类别存在
+    private func ensureDefaultCategories() {
+        for category in defaultCategories {
+            if !usedCategories.contains(category) {
+                usedCategories.append(category)
+            }
+        }
+        saveCategories()
+        
+        // 确保排序列表包含所有类别
+        for category in usedCategories {
+            if !categoryOrder.contains(category) {
+                categoryOrder.append(category)
+            }
+        }
+        saveCategoryOrder()
+    }
+    
+    // 根据现有物品更新类别列表
+    private func updateCategoriesFromExistingItems() {
+        var categoriesToAdd: Set<String> = []
+        for item in items {
+            if !item.category.isEmpty {
+                categoriesToAdd.insert(item.category)
+            }
+        }
+        
+        for category in categoriesToAdd {
+            if !usedCategories.contains(category) {
+                usedCategories.append(category)
+            }
+            if !categoryOrder.contains(category) {
+                categoryOrder.append(category)
+            }
+        }
+        saveCategories()
+        saveCategoryOrder()
+    }
+    
+    // 添加新类别
+    func addCategory(_ category: String) {
+        if !usedCategories.contains(category) {
+            usedCategories.append(category)
+            usedCategories.sort()
+            categoryOrder.append(category)
+            saveCategories()
+            saveCategoryOrder()
+        }
+    }
+    
+    // 重新排序类别
+    func reorderCategories(from source: IndexSet, to destination: Int) {
+        categoryOrder.move(fromOffsets: source, toOffset: destination)
+        saveCategoryOrder()
+    }
+    
+    // 移动类别到指定位置
+    func moveCategory(_ category: String, to targetCategory: String) {
+        guard let sourceIndex = categoryOrder.firstIndex(of: category),
+              let targetIndex = categoryOrder.firstIndex(of: targetCategory),
+              sourceIndex != targetIndex else { return }
+        
+        categoryOrder.remove(at: sourceIndex)
+        categoryOrder.insert(category, at: targetIndex)
+        saveCategoryOrder()
+    }
+    
+    // 获取所有可用类别（包括默认类别和用户添加的类别）
+    func getAllAvailableCategories() -> [String] {
+        return usedCategories
+    }
+    
+    // 获取类别使用统计
+    func getCategoryUsageStats() -> [(category: String, count: Int)] {
+        Dictionary(grouping: items) { $0.category.isEmpty ? "未分类" : $0.category }
+            .map { (category: $0.key, count: $0.value.count) }
+            .sorted { $0.count > $1.count } // 按使用次数排序
     }
     
     // MARK: - 持久化

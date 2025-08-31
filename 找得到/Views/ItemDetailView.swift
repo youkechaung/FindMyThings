@@ -8,6 +8,7 @@ struct ItemDetailView: View {
     @State private var isEditing = false
     @State private var showingLocationPicker = false
     @State private var selectedLocation: Location?
+    @State private var showingCategoryPicker = false
     
     init(item: Item, itemManager: ItemManager) {
         _editedItem = State(initialValue: item)
@@ -39,8 +40,18 @@ struct ItemDetailView: View {
                                 .textFieldStyle(RoundedBorderTextFieldStyle())
                         }
                         
-                        TextField("类别", text: $editedItem.category)
-                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                        Button(action: {
+                            showingCategoryPicker = true
+                        }) {
+                            HStack {
+                                Text(editedItem.category.isEmpty ? "选择类别" : editedItem.category)
+                                    .foregroundColor(editedItem.category.isEmpty ? .blue : .primary)
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .foregroundColor(.gray)
+                            }
+                        }
+                        .buttonStyle(.bordered)
                         
                         Button(action: {
                             showingLocationPicker = true
@@ -71,6 +82,18 @@ struct ItemDetailView: View {
                                     .font(.title2)
                                     .foregroundColor(.green)
                             }
+                        }
+                        
+                        // 显示物品编号
+                        HStack {
+                            Text("编号：\(editedItem.itemNumber)")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.gray.opacity(0.1))
+                                .cornerRadius(4)
+                            Spacer()
                         }
                         
                         if !editedItem.category.isEmpty {
@@ -154,12 +177,15 @@ struct ItemDetailView: View {
                 }
             ))
         }
+        .sheet(isPresented: $showingCategoryPicker) {
+            CategoryPickerView(selectedCategory: $editedItem.category, itemManager: itemManager)
+        }
     }
 }
 
 struct ItemDetailView_Previews: PreviewProvider {
     static var previews: some View {
-        NavigationStack {
+        NavigationView {
             ItemDetailView(item: Item(
                 name: "示例物品",
                 location: "书房",
