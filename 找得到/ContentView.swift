@@ -11,6 +11,8 @@ import AVFoundation
 
 struct ContentView: View {
     @EnvironmentObject private var itemManager: ItemManager
+    @EnvironmentObject private var authService: AuthService // Add AuthService
+    @EnvironmentObject private var supabaseService: SupabaseService // Add SupabaseService
     @State private var showingAddItem = false
     @State private var showingImageAnalysis = false
     @State private var showingChat = false
@@ -30,55 +32,58 @@ struct ContentView: View {
     private let audioEngine = AVAudioEngine()
     
     var body: some View {
-        TabView {
-            // 主页 - 物品管理
-            HomeView(
-                searchText: $searchText,
-                itemManager: itemManager,
-                showingAddItem: $showingAddItem,
-                showingImageAnalysis: $showingImageAnalysis
-            )
-            .tabItem {
-                Image(systemName: "house.fill")
-                Text("首页")
-            }
-            
-            // 搜索页面
-            SearchView(itemManager: itemManager)
-            .tabItem {
-                Image(systemName: "magnifyingglass")
-                Text("搜索")
-            }
-            
-            // 统计页面
-            StatsView(itemManager: itemManager)
-            .tabItem {
-                Image(systemName: "chart.bar.fill")
-                Text("统计")
-            }
-            
-            // 聊天页面
-            ChatTabView(
-                messages: $messages,
-                newMessage: $newMessage,
-                isLoading: $isLoading,
-                isRecording: $isRecording,
-                onSend: sendMessage,
-                onRecord: toggleRecording
-            )
-            .tabItem {
+        Group {
+            if authService.isAuthenticated {
+                TabView {
+                    // 主页 - 物品管理
+                    HomeView(
+                        searchText: $searchText,
+                        itemManager: itemManager,
+                        authService: authService,
+                        showingAddItem: $showingAddItem,
+                        showingImageAnalysis: $showingImageAnalysis
+                    )
+                    .tabItem {
+                        Image(systemName: "house.fill")
+                        Text("首页")
+                    }
+                    
+                    // 搜索页面
+                    SearchView(itemManager: itemManager)
+                    .tabItem {
+                        Image(systemName: "magnifyingglass")
+                        Text("搜索")
+                    }
+                    
+                    // 统计页面
+                    StatsView(itemManager: itemManager)
+                    .tabItem {
+                        Image(systemName: "chart.bar.fill")
+                        Text("统计")
+                    }
+                    
+                    // 聊天页面
+                    ChatTabView(
+                        messages: $messages,
+                        newMessage: $newMessage,
+                        isLoading: $isLoading,
+                        isRecording: $isRecording,
+                        onSend: sendMessage,
+                        onRecord: toggleRecording
+                    )
+                    .tabItem {
                         Image(systemName: "message.fill")
-                Text("管家")
-            }
-            
-            // 设置页面
-            SettingsView(itemManager: itemManager)
-            .tabItem {
-                Image(systemName: "gearshape.fill")
-                Text("设置")
-            }
-        }
-        .accentColor(.blue)
+                        Text("管家")
+                    }
+                    
+                    // 设置页面
+                    SettingsView(itemManager: itemManager)
+                    .tabItem {
+                        Image(systemName: "gearshape.fill")
+                        Text("设置")
+                    }
+                }
+                .accentColor(.blue)
             .fullScreenCover(isPresented: $showingChat) {
                 ChatView(
                     messages: $messages,
@@ -100,6 +105,10 @@ struct ContentView: View {
             }
             .onDisappear {
                 removeKeyboardNotifications()
+                }
+            } else {
+                LoginView()
+            }
         }
     }
     
@@ -271,23 +280,23 @@ struct ContentView: View {
             你是一个智能助手，帮助用户管理和查找他们的物品。根据以下物品信息回答用户的问题：
 
             物品列表：
-            \(itemManager.items.map { item in
+            \(self.itemManager.items.map { item in
                 """
                 - \(item.name)：
                   位置：\(item.location)
                   价格：\(String(format: "%.2f", item.estimatedPrice))元
                   状态：\(item.isInUse ? "使用中" : "可用")
                   描述：\(item.description)
-                  分类：\(item.category)
+                  分类：\(item.categoryLevel1)
                 """
             }.joined(separator: "\n"))
 
             统计信息：
-            - 物品总数：\(itemManager.items.count)件
-            - 总价值：\(String(format: "%.2f", itemManager.getTotalValue()))元
-            - 使用中物品：\(itemManager.getInUseItems().count)件
-            - 可用物品：\(itemManager.getAvailableItems().count)件
-            - 位置分布：\(Dictionary(grouping: itemManager.items) { $0.location }.map { "\($0.key): \($0.value.count)件" }.joined(separator: "、"))
+            - 物品总数：\(self.itemManager.items.count)件
+            - 总价值：\(String(format: "%.2f", self.itemManager.getTotalValue()))元
+            - 使用中物品：\(self.itemManager.getInUseItems().count)件
+            - 可用物品：\(self.itemManager.getAvailableItems().count)件
+            - 位置分布：\(Dictionary(grouping: self.itemManager.items) { $0.location }.map { "\($0.key): \($0.value.count)件" }.joined(separator: "、"))
 
             请用简短的语言回答用户的问题。如果问题涉及具体物品，请提供该物品的位置、价格和使用状态等信息。
             """
@@ -306,7 +315,7 @@ struct ContentView: View {
         var response: String?
         
         // 首先尝试使用复杂查询处理
-        response = itemManager.processComplexQuery(actualQuery)
+        response = self.itemManager.processComplexQuery(actualQuery)
         if response != nil {
             completion(response!)
             return
@@ -314,16 +323,16 @@ struct ContentView: View {
         
         // 处理总价值查询
         if actualQuery.contains("总价值") || actualQuery.contains("总共值") {
-            let totalValue = itemManager.getTotalValue()
+            let totalValue = self.itemManager.getTotalValue()
             response = "所有物品的总价值为 \(String(format: "%.2f", totalValue)) 元"
         }
         
         // 处理位置物品数量查询
         else if actualQuery.contains("多少个") || actualQuery.contains("几个") {
-            for location in itemManager.getAllLocations() {
+            for location in self.itemManager.getAllLocations() {
                 if actualQuery.contains(location.lowercased()) {
-                    let items = itemManager.itemsInLocation(location)
-                    let inUseItems = itemManager.getInUseItemsInLocation(location)
+                    let items = self.itemManager.itemsInLocation(location)
+                    let inUseItems = self.itemManager.getInUseItemsInLocation(location)
                     response = "\(location)总共有\(items.count)个物品，其中\(inUseItems.count)个正在使用中"
                     break
                 }
@@ -332,7 +341,7 @@ struct ContentView: View {
         
         // 处理使用状态查询
         else if actualQuery.contains("正在用") || actualQuery.contains("使用中") || actualQuery.contains("在用") {
-            let inUseItems = itemManager.getInUseItems()
+            let inUseItems = self.itemManager.getInUseItems()
             if inUseItems.isEmpty {
                 response = "目前没有正在使用的物品"
             } else {
@@ -343,7 +352,7 @@ struct ContentView: View {
         
         // 处理可用状态查询
         else if actualQuery.contains("可以用") || actualQuery.contains("能用") || actualQuery.contains("空闲") {
-            let availableItems = itemManager.getAvailableItems()
+            let availableItems = self.itemManager.getAvailableItems()
             if availableItems.isEmpty {
                 response = "目前所有物品都在使用中"
             } else {
@@ -354,12 +363,12 @@ struct ContentView: View {
         
         // 处理位置总价值查询
         else if actualQuery.contains("值多少") || actualQuery.contains("价值") {
-            for location in itemManager.getAllLocations() {
+            for location in self.itemManager.getAllLocations() {
                 if actualQuery.contains(location.lowercased()) {
-                    let locationValue = itemManager.getTotalValueByLocation()
+                    let locationValue = self.itemManager.getTotalValueByLocation()
                         .first { $0.location.lowercased() == location.lowercased() }?.value ?? 0
-                    let items = itemManager.itemsInLocation(location)
-                    let inUseItems = itemManager.getInUseItemsInLocation(location)
+                    let items = self.itemManager.itemsInLocation(location)
+                    let inUseItems = self.itemManager.getInUseItemsInLocation(location)
                     response = "\(location)的物品总价值为 \(String(format: "%.2f", locationValue)) 元，共有\(items.count)个物品，其中\(inUseItems.count)个正在使用中"
                     break
                 }
@@ -368,7 +377,7 @@ struct ContentView: View {
         
         // 处理最贵物品查询
         else if actualQuery.contains("最贵") || actualQuery.contains("价值最高") {
-            let valuableItems = itemManager.getMostValuableItems(limit: 3)
+            let valuableItems = self.itemManager.getMostValuableItems(limit: 3)
             if !valuableItems.isEmpty {
                 let itemsDesc = valuableItems.map { 
                     "\($0.name)（\(String(format: "%.2f", $0.estimatedPrice))元，\($0.isInUse ? "使用中" : "可用")）" 
@@ -379,7 +388,7 @@ struct ContentView: View {
         
         // 处理位置查询
         else {
-            for item in itemManager.items {
+            for item in self.itemManager.items {
                 let itemName = item.name.lowercased()
                 if actualQuery.contains(itemName) && 
                    (actualQuery.contains("在哪") || 
@@ -427,6 +436,8 @@ struct ContentView: View {
 struct HomeView: View {
     @Binding var searchText: String
     @ObservedObject var itemManager: ItemManager
+    @ObservedObject var authService: AuthService
+    @EnvironmentObject private var supabaseService: SupabaseService // Add SupabaseService
     @Binding var showingAddItem: Bool
     @Binding var showingImageAnalysis: Bool
     @State private var showingBatchAdd = false
@@ -478,11 +489,14 @@ struct HomeView: View {
             .sheet(isPresented: $showingBatchAdd) {
                 BatchAddItemsView()
                     .environmentObject(itemManager)
+                    .environmentObject(authService)
+                    .environmentObject(supabaseService)
             }
         }
     }
 }
 
+// ...
 // MARK: - StatsCardView
 
 struct StatsCardView: View {
@@ -510,7 +524,7 @@ struct StatsCardView: View {
             StatItemView(
                 icon: "hand.raised.fill",
                 title: "使用中",
-                value: "\(itemManager.getInUseItems().count)件",
+                value: "\(self.itemManager.getInUseItems().count)件",
                 color: .orange
             )
         }
@@ -568,7 +582,7 @@ struct SearchView: View {
         }
         
         if !selectedCategory.isEmpty {
-            items = items.filter { $0.category == selectedCategory }
+            items = items.filter { $0.categoryLevel1 == selectedCategory }
         }
         
         return items.sorted { $0.itemNumber < $1.itemNumber }
@@ -725,7 +739,7 @@ struct OverviewStatsView: View {
                 
                 StatCardView(
                     title: "使用中",
-                    value: "\(itemManager.getInUseItems().count)",
+                    value: "\(self.itemManager.getInUseItems().count)",
                     icon: "hand.raised.fill",
                     color: .orange
                 )
@@ -955,6 +969,7 @@ struct ChatTabView: View {
 
 struct SettingsView: View {
     @ObservedObject var itemManager: ItemManager
+    @EnvironmentObject var authService: AuthService // Add AuthService
     @State private var showingExportAlert = false
     @State private var showingImportAlert = false
     
@@ -982,6 +997,19 @@ struct SettingsView: View {
                         isDestructive: true,
                         action: { }
                     )
+                }
+                
+                Section {
+                    SettingsRowView(
+                        icon: "arrow.right.square",
+                        title: "退出登录",
+                        isDestructive: true,
+                        action: {
+                            Task { await authService.signOut() }
+                        }
+                    )
+                } header: {
+                    Text("账户")
                 }
                 
                 Section {
@@ -1295,13 +1323,18 @@ struct ItemCardView: View {
     var body: some View {
         VStack(spacing: 8) {
             // 物品图片
-            if let imageData = item.imageData,
-               let uiImage = UIImage(data: imageData) {
-                Image(uiImage: uiImage)
+            if let imageURL = item.imageURL,
+               let url = URL(string: imageURL) {
+                AsyncImage(url: url) {
+                    image in image
                     .resizable()
                     .scaledToFill()
-                    .frame(height: 120)
+                        .frame(height: 120)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
+                } placeholder: {
+                    ProgressView()
+                        .frame(height: 120)
+                }
             } else {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(Color.gray.opacity(0.2))
@@ -1373,13 +1406,18 @@ struct CompactItemRowView: View {
     
     var body: some View {
         HStack(spacing: 8) {
-            if let imageData = item.imageData,
-               let uiImage = UIImage(data: imageData) {
-                Image(uiImage: uiImage)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: 40, height: 40)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            if let imageURL = item.imageURL,
+               let url = URL(string: imageURL) {
+                AsyncImage(url: url) {
+                    image in image
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 40, height: 40)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                } placeholder: {
+                    ProgressView()
+                        .frame(width: 40, height: 40)
+                }
             } else {
                 RoundedRectangle(cornerRadius: 6)
                     .fill(Color.gray.opacity(0.2))

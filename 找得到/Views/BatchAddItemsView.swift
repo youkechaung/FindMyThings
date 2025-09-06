@@ -4,6 +4,8 @@ import PhotosUI
 struct BatchAddItemsView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var itemManager: ItemManager
+    @EnvironmentObject private var supabaseService: SupabaseService
+    @EnvironmentObject private var authService: AuthService
     @StateObject private var locationManager = LocationManager.shared
     
     @State private var selectedImage: UIImage?
@@ -177,7 +179,11 @@ struct BatchAddItemsView: View {
                             }
                             
                             // 添加按钮
-                            Button(action: addSelectedItems) {
+                            Button(action: {
+                                Task {
+                                    await addSelectedItems()
+                                }
+                            }) {
                                 HStack {
                                     Image(systemName: "plus.circle.fill")
                                     Text("添加选中物品 (\(selectedItems.count)个)")
@@ -286,10 +292,12 @@ struct BatchAddItemsView: View {
                     let newItemNumber = self.itemManager.generateItemNumber()
                     let updatedItem = SegmentedItem(
                         id: item.id,
-                        image: item.image,
+                        croppedImageData: item.croppedImageData, // 使用 croppedImageData
                         name: item.name,
                         description: item.description,
-                        category: item.category,
+                        categoryLevel1: item.categoryLevel1, // Use categoryLevel1
+                        categoryLevel2: item.categoryLevel2, // Use categoryLevel2
+                        categoryLevel3: item.categoryLevel3, // Use categoryLevel3
                         estimatedPrice: item.estimatedPrice,
                         confidence: item.confidence,
                         itemNumber: newItemNumber
@@ -306,30 +314,43 @@ struct BatchAddItemsView: View {
         }
     }
     
-    private func addSelectedItems() {
+    private func addSelectedItems() async {
         guard let location = selectedLocation?.fullPath else { return }
-        
+
         var addedCount = 0
-        
+
         for item in segmentedItems {
             if selectedItems.contains(item.id) {
-                let imageData = item.image.jpegData(compressionQuality: 0.8)
-                
-                let newItem = Item(
-                    itemNumber: item.itemNumber,
-                    name: item.name,
-                    location: location,
-                    description: item.description,
-                    category: item.category,
-                    estimatedPrice: item.estimatedPrice,
-                    imageData: imageData
-                )
-                
-                itemManager.addItem(newItem)
-                addedCount += 1
+                do {
+                    // Upload image to Supabase Storage
+                    guard let imageData = item.croppedImageData else {
+                        print("Error: No image data for item \(item.name)")
+                        continue
+                    }
+                    let fileName = UUID().uuidString + ".jpeg"
+                    let imageURL = try await supabaseService.uploadImage(imageData: imageData, fileName: fileName)
+
+                    let newItem = Item(
+                        itemNumber: item.itemNumber,
+                        name: item.name,
+                        location: location,
+                        description: item.description,
+                        categoryLevel1: item.categoryLevel1, // Use categoryLevel1
+                        categoryLevel2: item.categoryLevel2, // Use categoryLevel2
+                        categoryLevel3: item.categoryLevel3, // Use categoryLevel3
+                        estimatedPrice: item.estimatedPrice,
+                        imageURL: imageURL,
+                        userID: authService.user?.id
+                    )
+
+                    try await itemManager.addItem(newItem)
+                    addedCount += 1
+                } catch {
+                    print("Error uploading image or adding item: \(error)")
+                }
             }
         }
-        
+
         addedItemsCount = addedCount
         showingSuccessAlert = true
     }
@@ -358,15 +379,31 @@ struct SegmentedItemCard: View {
             }
             
             // 物品图片
-            Image(uiImage: item.image)
-                .resizable()
-                .scaledToFill()
-                .frame(height: 100)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(isSelected ? Color.blue : Color.clear, lineWidth: 3)
-                )
+            if let imageData = item.croppedImageData, let uiImage = UIImage(data: imageData) {
+                Image(uiImage: uiImage)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(height: 100)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(isSelected ? Color.blue : Color.clear, lineWidth: 3)
+                    )
+            } else {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.gray.opacity(0.2))
+                    .frame(height: 100)
+                    .overlay(
+                        Image(systemName: "photo")
+                            .foregroundColor(.gray)
+                            .font(.title)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(isSelected ? Color.blue : Color.clear, lineWidth: 3)
+                    )
+            }
             
             // 物品信息
             VStack(spacing: 4) {
@@ -384,9 +421,26 @@ struct SegmentedItemCard: View {
                     .background(Color.gray.opacity(0.1))
                     .cornerRadius(4)
                 
-                Text(item.category)
-                    .font(.caption)
-                    .foregroundColor(.blue)
+                // Display Category Level 1
+                if !item.categoryLevel1.isEmpty {
+                    Text(item.categoryLevel1)
+                        .font(.caption)
+                        .foregroundColor(.blue)
+                }
+
+                // Optionally display Category Level 2
+                if let level2 = item.categoryLevel2, !level2.isEmpty {
+                    Text("二级分类: \(level2)")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+
+                // Optionally display Category Level 3
+                if let level3 = item.categoryLevel3, !level3.isEmpty {
+                    Text("三级分类: \(level3)")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
                 
                 if item.estimatedPrice > 0 {
                     Text("¥\(String(format: "%.0f", item.estimatedPrice))")
@@ -423,11 +477,14 @@ struct SegmentedItemCard: View {
 struct SegmentedItemEditView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var itemManager: ItemManager
+    @EnvironmentObject private var supabaseService: SupabaseService
     let item: SegmentedItem
     let onSave: (SegmentedItem) -> Void
     
     @State private var editedName: String
-    @State private var editedCategory: String
+    @State private var editedCategoryLevel1: String // Changed from editedCategory
+    @State private var editedCategoryLevel2: String?
+    @State private var editedCategoryLevel3: String?
     @State private var editedDescription: String
     @State private var editedPrice: String
     @State private var editedItemNumber: String
@@ -438,7 +495,9 @@ struct SegmentedItemEditView: View {
         self.itemManager = itemManager
         self.onSave = onSave
         self._editedName = State(initialValue: item.name)
-        self._editedCategory = State(initialValue: item.category)
+        self._editedCategoryLevel1 = State(initialValue: item.categoryLevel1) // Use categoryLevel1
+        self._editedCategoryLevel2 = State(initialValue: item.categoryLevel2) // Use categoryLevel2
+        self._editedCategoryLevel3 = State(initialValue: item.categoryLevel3) // Use categoryLevel3
         self._editedDescription = State(initialValue: item.description)
         self._editedPrice = State(initialValue: String(format: "%.0f", item.estimatedPrice))
         self._editedItemNumber = State(initialValue: item.itemNumber)
@@ -449,11 +508,22 @@ struct SegmentedItemEditView: View {
             ScrollView {
                 VStack(spacing: 20) {
                     // 物品图片
-                    Image(uiImage: item.image)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxHeight: 200)
-                        .cornerRadius(12)
+                    if let imageData = item.croppedImageData, let uiImage = UIImage(data: imageData) {
+                        Image(uiImage: uiImage)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxHeight: 200)
+                            .cornerRadius(12)
+                    } else {
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.gray.opacity(0.2))
+                            .frame(height: 200)
+                            .overlay(
+                                Image(systemName: "photo")
+                                    .foregroundColor(.gray)
+                                    .font(.largeTitle)
+                            )
+                    }
                     
                     VStack(spacing: 16) {
                         // 物品编号
@@ -480,8 +550,8 @@ struct SegmentedItemEditView: View {
                                 showingCategoryPicker = true
                             }) {
                                 HStack {
-                                    Text(editedCategory.isEmpty ? "选择分类" : editedCategory)
-                                        .foregroundColor(editedCategory.isEmpty ? .blue : .primary)
+                                    Text(editedCategoryLevel1.isEmpty ? "选择分类" : editedCategoryLevel1)
+                                        .foregroundColor(editedCategoryLevel1.isEmpty ? .blue : .primary)
                                     Spacer()
                                     Image(systemName: "chevron.right")
                                         .foregroundColor(.gray)
@@ -529,9 +599,12 @@ struct SegmentedItemEditView: View {
             }
             .sheet(isPresented: $showingCategoryPicker) {
                 CategoryPickerView(
-                    selectedCategory: $editedCategory,
+                    selectedCategoryLevel1: $editedCategoryLevel1,
+                    selectedCategoryLevel2: $editedCategoryLevel2,
+                    selectedCategoryLevel3: $editedCategoryLevel3,
                     itemManager: itemManager
                 )
+                .environmentObject(supabaseService)
             }
         }
     }
@@ -539,10 +612,12 @@ struct SegmentedItemEditView: View {
     private func saveChanges() {
         let updatedItem = SegmentedItem(
             id: item.id,
-            image: item.image,
+            croppedImageData: item.croppedImageData, // 使用原始图片的 Data
             name: editedName,
             description: editedDescription,
-            category: editedCategory,
+            categoryLevel1: editedCategoryLevel1, // Use editedCategoryLevel1
+            categoryLevel2: editedCategoryLevel2, // Use editedCategoryLevel2
+            categoryLevel3: editedCategoryLevel3, // Use editedCategoryLevel3
             estimatedPrice: Double(editedPrice) ?? 0,
             confidence: item.confidence,
             itemNumber: editedItemNumber

@@ -1,11 +1,5 @@
 import Foundation
 import UIKit
-import Vision
-import VisionKit
-import CoreImage.CIFilterBuiltins
-import ImageIO // New import
-import CoreGraphics // New import
-import UniformTypeIdentifiers // Add this import
 
 // Response structures for AI API
 struct ChatResponse: Codable {
@@ -30,28 +24,16 @@ struct ChatMessage: Codable {
 class AIService {
     static let shared = AIService()
     private let apiKey = "sk-yIkBArpEqL1qpI3vj5p0vh0dR1Z6BI7YaBRnTmdVDvho3cYH"
-    private let baiduApiKey = "QcVAOZv3rkRoRxI1liYoicJV"
-    private let baiduAppId = "119869976"
-    private var baiduAccessToken: String?
     private var lastRequestTime: Date?
     private let minimumRequestInterval: TimeInterval = 1 // 1秒
     private var retryCount = 0
     private let maxRetries = 3
     
     private init() {
-        // 初始化时获取百度 API 访问令牌
-        getBaiduAccessToken()
+        // 初始化时不再获取百度 API 访问令牌
     }
     
-    // 获取百度 API 访问令牌
-    private func getBaiduAccessToken() {
-        // 使用您提供的访问令牌
-        let accessToken = "24.461d6ebeb2622a6677e65335c17d5025.2592000.1758850651.282335-119869976"
-        
-        // 直接设置，不使用异步
-        self.baiduAccessToken = accessToken
-        print("百度 API 访问令牌设置成功")
-    }
+    // 百度 API 访问令牌相关代码已移除
     
     private func canMakeRequest() -> Bool {
         if let lastRequest = lastRequestTime {
@@ -238,7 +220,7 @@ class AIService {
         let query = """
         物品名称：\(item.name)
         物品描述：\(item.description)
-        物品类别：\(item.category)
+        物品类别：\(item.categoryLevel1)
         请根据以上信息，估算这个物品的大致价格。
         """
         
@@ -348,7 +330,7 @@ class AIService {
                let choices = responseJSON["choices"] as? [[String: Any]],
                let message = choices.first?["message"] as? [String: Any],
                let content = message["content"] as? String {
-                print("收到图片分析结果")
+               print("收到图片分析结果")
                 completion(content)
             } else {
                 print("响应解析失败")
@@ -429,17 +411,17 @@ class AIService {
             let lines = content.components(separatedBy: .newlines)
             var itemName = "未知物品"
             var description = "无法分析物品"
-            var category = "其他"
+            var categoryLevel1 = "其他"
             var price: Double = 0.0
             
             for line in lines {
                 if line.hasPrefix("名称：") {
-                    itemName = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+                    itemName = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "[", with: "").replacingOccurrences(of: "]", with: "")
                 } else if line.hasPrefix("描述：") {
                     description = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
                 } else if line.hasPrefix("类别：") {
                     let detailedCategory = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
-                    category = self.mapToBroaderCategory(detailedCategory: detailedCategory)
+                    categoryLevel1 = self.mapToBroaderCategory(detailedCategory: detailedCategory)
                 } else if line.hasPrefix("价格：") {
                     if let priceStr = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces).components(separatedBy: .whitespaces).first {
                         price = Double(priceStr) ?? 0.0
@@ -448,7 +430,7 @@ class AIService {
             }
             
             DispatchQueue.main.async {
-                completion(itemName, description, category, price)
+                completion(itemName, description, categoryLevel1, price)
             }
         }
     }
@@ -462,7 +444,9 @@ class AIService {
               价格：\(String(format: "%.2f", item.estimatedPrice))元
               状态：\(item.isInUse ? "使用中" : "可用")
               描述：\(item.description)
-              分类：\(item.category)
+              一级分类：\(item.categoryLevel1)
+              \(item.categoryLevel2.map { "二级分类：\($0)" } ?? "")
+              \(item.categoryLevel3.map { "三级分类：\($0)" } ?? "")
             """
         }.joined(separator: "\n")
         
@@ -520,559 +504,122 @@ class AIService {
         }
     }
     
-    // 新增：图片分割和批量识别功能 - 使用百度多主体检测 API
+    // 新增：图片分割和批量识别功能 - 使用 Kimi Vision API
     func segmentAndAnalyzeImage(_ image: UIImage, completion: @escaping ([SegmentedItem]) -> Void) {
-        // 使用百度多主体检测 API
-        detectMultipleObjects(from: image) { objects in
-            let segmentedItems = objects.enumerated().map { index, object in
-                // 根据检测到的位置裁剪图片
-                let croppedImage = self.cropImage(image: image, rect: object.location)
-                
-                return SegmentedItem(
-                    id: UUID(),
-                    image: croppedImage,
-                    name: object.name,
-                    description: "检测到的\(object.name)",
-                    category: self.mapToBroaderCategory(detailedCategory: object.name),
-                    estimatedPrice: 0.0, // 价格需要单独估算
-                    confidence: object.score,
-                    itemNumber: ""
-                )
-            }
-            completion(segmentedItems)
-        }
-    }
-
-    // ===== Baidu API Image Processing Helpers (from testmyself.swift) =====
-
-    private func loadCGImage(from data: Data) -> CGImage? {
-        guard let src = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
-        return CGImageSourceCreateImageAtIndex(src, 0, nil)
-    }
-
-    private func imageSize(of data: Data) -> (w: Int, h: Int)? {
-        guard let src = CGImageSourceCreateWithData(data as CFData, nil),
-              let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
-              let w = props[kCGImagePropertyPixelWidth] as? Int,
-              let h = props[kCGImagePropertyPixelHeight] as? Int else { return nil }
-        return (w, h)
-    }
-
-    private func cropToMaxAspect(_ img: CGImage, maxAspect: CGFloat) -> CGImage {
-        let w = CGFloat(img.width), h = CGFloat(img.height)
-        let ratio = max(w/h, h/w)
-        guard ratio > maxAspect else { return img } // Already satisfied
-
-        // Need to crop to the maximum allowed ratio, centered
-        if w/h > maxAspect {
-            let targetW = maxAspect * h
-            let x = (w - targetW) / 2.0
-            let rect = CGRect(x: Int(x), y: 0, width: Int(targetW), height: Int(h))
-            return img.cropping(to: rect) ?? img
-        } else {
-            let targetH = maxAspect * w
-            let y = (h - targetH) / 2.0
-            let rect = CGRect(x: 0, y: Int(y), width: Int(w), height: Int(targetH))
-            return img.cropping(to: rect) ?? img
-        }
-    }
-
-    private func resize(_ img: CGImage, minShort: CGFloat, maxLong: CGFloat) -> CGImage {
-        // Calculate scaling factor: short side >= 64, long side <= 4096
-        let w = CGFloat(img.width), h = CGFloat(img.height)
-        let shortSide = min(w, h)
-        let longSide = max(w, h)
-
-        var scaleUp: CGFloat = 1.0
-        if shortSide < minShort { scaleUp = minShort / shortSide }
-
-        var scaleDown: CGFloat = 1.0
-        if longSide > maxLong { scaleDown = maxLong / longSide }
-
-        // Combine scale factors
-        let finalScale = min(max(scaleUp, 1.0), scaleDown)
-
-        let newW = max(1, Int(round(w * finalScale)))
-        let newH = max(1, Int(round(h * finalScale)))
-
-        guard newW != img.width || newH != img.height else { return img }
-
-        // Redraw to scale using CoreGraphics
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        let bytesPerPixel = 4
-        let bytesPerRow = newW * bytesPerPixel
-        guard let ctx = CGContext(data: nil,
-                                  width: newW,
-                                  height: newH,
-                                  bitsPerComponent: 8,
-                                  bytesPerRow: bytesPerRow,
-                                  space: colorSpace,
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-        else { return img }
-
-        ctx.interpolationQuality = .high
-        ctx.draw(img, in: CGRect(x: 0, y: 0, width: newW, height: newH))
-        return ctx.makeImage() ?? img
-    }
-
-    private func encodeJPEG(_ img: CGImage, quality: CGFloat) -> Data? {
-        #if canImport(UniformTypeIdentifiers)
-        let utType = UTType.jpeg.identifier as CFString
-        #else
-        let utType = "public.jpeg" as CFString
-        #endif
-        let data = NSMutableData()
-        guard let dest = CGImageDestinationCreateWithData(data, utType, 1, nil) else { return nil }
-        let options: [CFString: Any] = [kCGImageDestinationLossyCompressionQuality: quality]
-        CGImageDestinationAddImage(dest, img, options as CFDictionary)
-        guard CGImageDestinationFinalize(dest) else { return nil }
-        return data as Data
-    }
-
-    private func percentEncodeBase64(_ base64: String) -> String {
-        var allowed = CharacterSet.alphanumerics
-        allowed.insert(charactersIn: "-_.~")
-        return base64.addingPercentEncoding(withAllowedCharacters: allowed) ?? base64
-    }
-
-    private func buildFormBody(imageBase64: String) -> Data? {
-        let encoded = percentEncodeBase64(imageBase64)
-        if encoded.contains("%2F") || encoded.contains("%2B") || encoded.contains("%3D") {
-            print("✅ Base64 已严格 percent-encoding（包含 %2F/%2B/%3D）")
-        } else {
-            print("⚠️ 注意：encoded 未发现 %2F/%2B/%3D（注意对比）")
-        }
-        let bodyString = "image=\(encoded)"
-        return bodyString.data(using: .utf8)
-    }
-
-    private func lengthInBytes(_ s: String) -> Int { s.lengthOfBytes(using: .utf8) }
-
-    // Constants for Baidu API from testmyself.swift
-    private let baiduMaxBytes: Int = 4 * 1024 * 1024           // 4MB
-    private let baiduMinShortSide: CGFloat = 64
-    private let baiduMaxLongSide: CGFloat = 4096
-    private let baiduMaxAspect: CGFloat = 3.0                   // 3:1
-    private let baiduInitialJPEGQuality: CGFloat = 0.9
-    private let baiduMinJPEGQuality: CGFloat = 0.2
-
-    // 使用百度多主体检测 API (Replacement from testmyself.swift)
-    private func detectMultipleObjects(from image: UIImage, completion: @escaping ([BaiduObject]) -> Void) {
-        guard let accessToken = baiduAccessToken else {
-            print("百度 API 访问令牌未获取")
-            DispatchQueue.main.async { completion([]) }
-            return
-        }
-
-        guard let originalData = image.jpegData(compressionQuality: 1.0) ?? image.pngData() else {
-            print("❌ 错误：无法获取原始图片数据")
-            DispatchQueue.main.async { completion([]) }
-            return
-        }
-
-        // Decode to CGImage
-        guard var cgImage = loadCGImage(from: originalData) else {
-            print("❌ 错误：无法解码为 CGImage（图片可能损坏或格式不支持）")
-            DispatchQueue.main.async { completion([]) }
-            return
-        }
-
-        // Print original image size
-        print("📐 原始尺寸：\(cgImage.width) x \(cgImage.height)")
-
-        // Constrain aspect ratio <= 3:1 (center crop if necessary)
-        cgImage = cropToMaxAspect(cgImage, maxAspect: baiduMaxAspect)
-
-        // Size constraints: minShortSide >= 64, maxLongSide <= 4096 (resize if necessary)
-        cgImage = resize(cgImage, minShort: baiduMinShortSide, maxLong: baiduMaxLongSide)
-        print("📐 处理后尺寸：\(cgImage.width) x \(cgImage.height)")
-
-        // Encode as JPEG and control volume (start with 0.9 quality)
-        var quality = baiduInitialJPEGQuality
-        var jpegData: Data? = encodeJPEG(cgImage, quality: quality)
-
-        if jpegData == nil {
-            print("❌ 错误：JPEG 编码失败")
-            DispatchQueue.main.async { completion([]) }
-            return
-        }
-
-        // Loop to reduce quality to ensure Base64 and urlencode are both < 4MB
-        while true {
-            guard let data = jpegData else {
-                print("❌ 错误：JPEG 数据为 nil")
-                DispatchQueue.main.async { completion([]) }
-                return
-            }
-            let base64 = data.base64EncodedString() // No data:image/... header
-            let base64Bytes = lengthInBytes(base64)
-
-            // Construct x-www-form-urlencoded
-            guard let formData = buildFormBody(imageBase64: base64) else {
-                print("❌ 错误：构造表单请求体失败")
-                DispatchQueue.main.async { completion([]) }
-                return
-            }
-            let urlEncodedBytes = formData.count
-
-            print("📦 当前质量：\(String(format: "%.2f", quality)) | Base64: \(base64Bytes)B | URL Encoded: \(urlEncodedBytes)B")
-
-            if base64Bytes <= baiduMaxBytes && urlEncodedBytes <= baiduMaxBytes {
-                // Meet 4MB dual constraints, send request
-                var urlComps = URLComponents(string: "https://aip.baidubce.com/rest/2.0/image-classify/v1/multi_object_detect")!
-                urlComps.queryItems = [URLQueryItem(name: "access_token", value: accessToken)]
-                guard let url = urlComps.url else {
-                    print("❌ 错误：URL 拼接失败")
-                    DispatchQueue.main.async { completion([]) }
-                    return
-                }
-
-                var request = URLRequest(url: url)
-                request.httpMethod = "POST"
-                request.setValue("application/x-www-form-urlencoded; charset=UTF-8", forHTTPHeaderField: "Content-Type")
-                request.httpBody = formData
-
-                // Log: Confirm percent-encoded (should see %2B/%2F/%3D)
-                if let q = String(data: formData, encoding: .utf8) {
-                    print("🧪 表单前60字符：\(q.prefix(60))")
-                    if q.contains("%2B") { print("✅ 已正确编码 '+'") }
-                    if q.contains("%2F") { print("✅ 已正确编码 '/'") }
-                    if q.contains("%3D") { print("✅ 已正确编码 '='") }
-                }
-
-                print("🚀 发送请求到：\(url.absoluteString)")
-
-                URLSession.shared.dataTask(with: request) { data, response, error in
-                    if let error = error {
-                        print("❌ 请求失败: \(error)")
-                        DispatchQueue.main.async { completion([]) }
-                        return
-                    }
-
-                    guard let data = data else {
-                        print("⚠️ 没有收到数据")
-                        DispatchQueue.main.async { completion([]) }
-                        return
-                    }
-
-                    if let http = response as? HTTPURLResponse {
-                        print("📡 HTTP 状态码：\(http.statusCode)")
-                    }
-                    print("📦 响应大小：\(data.count) 字节")
-                    do {
-                        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-                        print("百度 API 响应: \(json ?? [:])")
-
-                        guard let result = json?["result"] as? [[String: Any]] else {
-                            print("解析结果失败: 'result' 字段不存在或格式错误")
-                            DispatchQueue.main.async { completion([]) }
-                            return
-                        }
-
-                        let objects = result.compactMap { BaiduObject(from: $0) }
-                        DispatchQueue.main.async {
-                            completion(objects)
-                        }
-                    } catch {
-                        print("JSON 解析失败: \(error)")
-                        if let txt = String(data: data, encoding: .utf8) {
-                            print("📜 原始响应文本：\(txt)")
-                        }
-                        DispatchQueue.main.async { completion([]) }
-                    }
-                }.resume()
-                return // Exit the while loop after sending request
-            }
-
-            // If over limit, reduce quality and try again
-            quality -= 0.1
-            if quality < baiduMinJPEGQuality {
-                print("❌ 无法满足 4MB 限制（即便质量降到 \(baiduMinJPEGQuality) 仍超过），请尝试更低分辨率图片。")
-                DispatchQueue.main.async { completion([]) }
-                return // Exit the function
-            }
-            jpegData = encodeJPEG(cgImage, quality: quality)
-        }
-    }
-
-    // 使用百度多主体检测 API
-    private func detectMultipleObjects111(from image: UIImage, completion: @escaping ([BaiduObject]) -> Void) {
-        guard let accessToken = baiduAccessToken else {
-            print("百度 API 访问令牌未获取")
-            completion([])
-            return
-        }
-
-        // 检查并调整图片尺寸
-        let processedImage = self.processImageForBaiduAPI(image)
-
-        // 强制使用 JPEG 格式，固定压缩质量
-        guard let imageData = processedImage.pngData() else {
+        guard let imageData = image.jpegData(compressionQuality: 0.8) else {
             print("图片转换为 JPEG 失败")
             completion([])
             return
         }
-
+        
         let base64String = imageData.base64EncodedString()
-        print("Base64 字符串长度: \(base64String.count)")
-        print("原始 Base64 前100个字符: \(String(base64String.prefix(100)))")
-        print("原始 Base64 后100个字符: \(String(base64String.suffix(100)))")
-        print("原始 Base64 字符: \(String(base64String))")
-
-        // 检查大小限制
-        var finalBase64String: String
-        if base64String.count > 4 * 1024 * 1024 {
-            print("图片太大，尝试更高压缩")
-            guard let compressedData = processedImage.jpegData(compressionQuality: 0.3) else {
-                print("图片压缩失败")
-                completion([])
-                return
-            }
-            let compressedBase64 = compressedData.base64EncodedString()
-            if compressedBase64.count > 4 * 1024 * 1024 {
-                print("图片仍然太大")
-                completion([])
-                return
-            }
-            finalBase64String = compressedBase64
-        } else {
-            finalBase64String = base64String
-        }
-
-        let urlString = "https://aip.baidubce.com/rest/2.0/image-classify/v1/multi_object_detect?access_token=\(accessToken)"
-        guard let url = URL(string: urlString) else {
+        let query = "请识别图片中的所有独立物品，为每个物品提供名称、详细描述、最合适的类别和估算价格（只返回数字，人民币单位）。详细描述应包括物品的外观、颜色、材质和状况等关键信息。请将每个物品的信息按照名称：[名称]、描述：[描述]、类别：[类别]、价格：[价格] 的格式单独列出，用换行符分隔。"
+        let systemPrompt = "你是一个专业的物品分析助手，能够识别图片中的多个物品并提供详细信息。请务必为每个物品提供详细的描述。"
+        
+        let messages: [[String: Any]] = [
+            ["role": "system", "content": systemPrompt],
+            ["role": "user", "content": [
+                ["type": "text", "text": query],
+                ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64,\(base64String)"]]
+            ]]
+        ]
+        
+        let requestBody: [String: Any] = [
+            "model": "moonshot-v1-8k-vision-preview",
+            "messages": messages
+        ]
+        
+        guard let url = URL(string: "https://api.moonshot.cn/v1/chat/completions") else {
             print("URL 创建失败")
             completion([])
             return
         }
-
-
-
-   
-
-        let encodedBase64 = finalBase64String.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? finalBase64String
-        let bodyString = "image=\(encodedBase64)"
-
-        print("发送请求，Base64 长度: \(finalBase64String.count)")
-        print("URL 编码后长度: \(encodedBase64.count)")
-        print("请求体长度: \(bodyString.count)")
-
-    
+        
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        request.httpBody = bodyString.data(using: .utf8)
-
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            if let error = error {
-                print("请求失败: \(error)")
-                DispatchQueue.main.async {
-                    completion([])
-                }
-                return
-            }
-
-            guard let data = data else {
-                print("没有收到数据")
-                DispatchQueue.main.async {
-                    completion([])
-                }
-                return
-            }
-
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
         do {
-            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-            print("百度 API 响应: \(json ?? [:])")
-
-            guard let result = json?["result"] as? [[String: Any]] else {
-                print("解析结果失败")
-                DispatchQueue.main.async {
-                    completion([])
-                }
+            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+        } catch {
+            print("请求体序列化失败: \(error)")
+            completion([])
+            return
+        }
+        
+        performRequest(request: request) { data, error in
+            guard let data = data,
+                  let response = try? JSONDecoder().decode(ChatResponse.self, from: data),
+                  let content = response.choices.first?.message.content else {
+                print("Kimi API 响应解析失败或无内容")
+                DispatchQueue.main.async { completion([]) }
                 return
             }
-
-            let objects = result.compactMap { BaiduObject(from: $0) }
-            DispatchQueue.main.async {
-                completion(objects)
+            
+            print("Kimi API 原始响应: \(content)")
+            
+            var segmentedItems: [SegmentedItem] = []
+            let itemBlocks = content.components(separatedBy: "名称：")
+            
+            for block in itemBlocks where !block.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                var itemName = ""
+                var itemDescription = ""
+                var itemCategory = "其他"
+                var itemPrice: Double = 0.0
+                
+                let lines = block.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                
+                for line in lines {
+                    if line.hasPrefix("描述：") {
+                        itemDescription = String(line.dropFirst("描述：".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                    } else if line.hasPrefix("类别：") {
+                        let rawCategory = String(line.dropFirst("类别：".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                        itemCategory = self.mapToBroaderCategory(detailedCategory: rawCategory)
+                    } else if line.hasPrefix("价格：") {
+                        if let priceStr = String(line.dropFirst("价格：".count)).trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: .whitespaces).first {
+                            itemPrice = Double(priceStr) ?? 0.0
+                        }
+                    }
+                }
+                
+                // 'block' starts with the item name since we split by '名称：'
+                let firstLineOfBlock = lines.first(where: { !$0.isEmpty }) ?? ""
+                itemName = firstLineOfBlock.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "[", with: "").replacingOccurrences(of: "]", with: "")
+                
+                // 如果名称为空，则不添加此物品
+                if !itemName.isEmpty {
+                    segmentedItems.append(SegmentedItem(
+                        id: UUID(),
+                        croppedImageData: imageData, // 使用原始图片数据
+                        name: itemName,
+                        description: itemDescription,
+                        categoryLevel1: itemCategory, // Using itemCategory as level1
+                        categoryLevel2: nil,
+                        categoryLevel3: nil,
+                        estimatedPrice: itemPrice,
+                        confidence: 1.0, // Kimi 不直接提供置信度，默认为1.0
+                        itemNumber: ""
+                    ))
+                }
             }
-        } catch {
-            print("JSON 解析失败: \(error)")
             DispatchQueue.main.async {
-                completion([])
+                completion(segmentedItems)
             }
         }
-    }.resume()
-}
-
-// ... existing code ...
-
-    
-
-}
-
-// 百度 API 返回的物体数据模型
-struct BaiduObject {
-    let name: String
-    let score: Double
-    let location: CGRect
-    
-    init?(from json: [String: Any]) {
-        guard let name = json["name"] as? String,
-              let location = json["location"] as? [String: Any],
-              let left = location["left"] as? Int,
-              let top = location["top"] as? Int,
-              let width = location["width"] as? Int,
-              let height = location["height"] as? Int else {
-            return nil
-        }
-        
-        // 处理 score，可能是字符串或数字
-        let score: Double
-        if let scoreString = json["score"] as? String {
-            score = Double(scoreString) ?? 0.0
-        } else if let scoreNumber = json["score"] as? Double {
-            score = scoreNumber
-        } else {
-            score = 0.0
-        }
-        
-        self.name = name
-        self.score = score
-        // 百度 API 返回的是绝对坐标
-        self.location = CGRect(x: Double(left), y: Double(top), width: Double(width), height: Double(height))
     }
 }
 
 // 分割物品的数据模型
 struct SegmentedItem: Identifiable {
     let id: UUID
-    let image: UIImage
+    let croppedImageData: Data? // Use Data for cropped image
     let name: String
     let description: String
-    let category: String
+    var categoryLevel1: String
+    var categoryLevel2: String?
+    var categoryLevel3: String?
     let estimatedPrice: Double
     let confidence: Double
     let itemNumber: String
-}
-
-// MARK: - 工具函数扩展
-
-extension UIImage {
-    func pixelBuffer() -> CVPixelBuffer? {
-        let size = CGSize(width: size.width, height: size.height)
-        var pb: CVPixelBuffer?
-        let attrs = [kCVPixelBufferCGImageCompatibilityKey: true,
-                     kCVPixelBufferCGBitmapContextCompatibilityKey: true] as CFDictionary
-        CVPixelBufferCreate(kCFAllocatorDefault,
-                            Int(size.width), Int(size.height),
-                            kCVPixelFormatType_32BGRA,
-                            attrs, &pb)
-        guard let buffer = pb else { return nil }
-        CVPixelBufferLockBaseAddress(buffer, [])
-        defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
-        let context = CGContext(data: CVPixelBufferGetBaseAddress(buffer),
-                                width: Int(size.width),
-                                height: Int(size.height),
-                                bitsPerComponent: 8,
-                                bytesPerRow: CVPixelBufferGetBytesPerRow(buffer),
-                                space: CGColorSpaceCreateDeviceRGB(),
-                                bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue)!
-        context.draw(cgImage!, in: CGRect(origin: .zero, size: size))
-        return buffer
-    }
-}
-
-extension AIService {
-    private func processImageForBaiduAPI(_ image: UIImage) -> UIImage {
-        let imageSize = image.size
-        print("原始图片尺寸: \(imageSize.width) x \(imageSize.height)")
-        
-        // 百度 API 要求：最短边至少64px，最长边最大4096px，长宽比3:1以内
-        let minSize: CGFloat = 64
-        let maxSize: CGFloat = 4096
-        let maxAspectRatio: CGFloat = 3.0
-        
-        var targetSize = imageSize
-        
-        // 检查长宽比
-        let aspectRatio = imageSize.width / imageSize.height
-        if aspectRatio > maxAspectRatio || aspectRatio < 1.0/maxAspectRatio {
-            print("图片长宽比不符合要求，需要调整")
-            if aspectRatio > maxAspectRatio {
-                // 图片太宽，调整宽度
-                targetSize.width = imageSize.height * maxAspectRatio
-                targetSize.height = imageSize.height
-            } else {
-                // 图片太高，调整高度
-                targetSize.height = imageSize.width * maxAspectRatio
-                targetSize.width = imageSize.width
-            }
-        }
-        
-        // 检查尺寸限制
-        if targetSize.width < minSize || targetSize.height < minSize {
-            print("图片尺寸太小，需要放大")
-            let scale = max(minSize / targetSize.width, minSize / targetSize.height)
-            targetSize.width *= scale
-            targetSize.height *= scale
-        }
-        
-        // 确保图片不会太大，控制在合理范围内
-        let maxDimension: CGFloat = 1024 // 限制最大尺寸为1024px
-        if targetSize.width > maxDimension || targetSize.height > maxDimension {
-            print("图片尺寸太大，需要缩小到 \(maxDimension)px 以内")
-            let scale = min(maxDimension / targetSize.width, maxDimension / targetSize.height)
-            targetSize.width *= scale
-            targetSize.height *= scale
-        }
-        
-        print("调整后图片尺寸: \(targetSize.width) x \(targetSize.height)")
-        
-        // 如果尺寸没有变化，直接返回原图
-        if targetSize == imageSize {
-            return image
-        }
-        
-        // 调整图片尺寸，确保输出 JPEG 格式
-        UIGraphicsBeginImageContextWithOptions(targetSize, false, 1.0)
-        image.draw(in: CGRect(origin: .zero, size: targetSize))
-        let resizedImage = UIGraphicsGetImageFromCurrentImageContext()
-        UIGraphicsEndImageContext()
-        
-        // 确保返回 JPEG 格式的图片
-        // if let resizedImage = resizedImage,
-        //    let jpegData = resizedImage.jpegData(compressionQuality: 0.9),
-        //    let jpegImage = UIImage(data: jpegData) {
-        //     return jpegImage
-        // }
-        
-        return resizedImage ?? image
-    }
-    
-    private func cropImage(image: UIImage, rect: CGRect) -> UIImage {
-        let imageSize = image.size
-        
-        // 百度 API 返回的是绝对坐标，直接使用
-        let cropRect = CGRect(
-            x: rect.origin.x,
-            y: rect.origin.y,
-            width: rect.width,
-            height: rect.height
-        )
-        
-        // 确保裁剪区域在图片范围内
-        let safeRect = CGRect(
-            x: max(0, cropRect.origin.x),
-            y: max(0, cropRect.origin.y),
-            width: min(cropRect.width, imageSize.width - cropRect.origin.x),
-            height: min(cropRect.height, imageSize.height - cropRect.origin.y)
-        )
-        
-        guard let cgImage = image.cgImage?.cropping(to: safeRect) else {
-            return image // 如果裁剪失败，返回原图
-        }
-        
-        return UIImage(cgImage: cgImage)
-    }
 }

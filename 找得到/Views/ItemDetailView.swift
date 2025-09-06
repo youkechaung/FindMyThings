@@ -9,6 +9,7 @@ struct ItemDetailView: View {
     @State private var showingLocationPicker = false
     @State private var selectedLocation: Location?
     @State private var showingCategoryPicker = false
+    @EnvironmentObject private var supabaseService: SupabaseService // Add SupabaseService
     
     init(item: Item, itemManager: ItemManager) {
         _editedItem = State(initialValue: item)
@@ -18,13 +19,27 @@ struct ItemDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                if let imageData = editedItem.imageData,
-                   let uiImage = UIImage(data: imageData) {
-                    Image(uiImage: uiImage)
-                        .resizable()
-                        .scaledToFit()
+                if let imageURL = editedItem.imageURL,
+                   let url = URL(string: imageURL) {
+                    AsyncImage(url: url) {
+                        image in image
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxHeight: 300)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    } placeholder: {
+                        ProgressView()
+                            .frame(maxHeight: 300)
+                    }
+                } else {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.gray.opacity(0.2))
                         .frame(maxHeight: 300)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .overlay(
+                            Image(systemName: "photo")
+                                .foregroundColor(.gray)
+                                .font(.largeTitle)
+                        )
                 }
                 
                 VStack(alignment: .leading, spacing: 12) {
@@ -44,8 +59,8 @@ struct ItemDetailView: View {
                             showingCategoryPicker = true
                         }) {
                             HStack {
-                                Text(editedItem.category.isEmpty ? "选择类别" : editedItem.category)
-                                    .foregroundColor(editedItem.category.isEmpty ? .blue : .primary)
+                                Text(editedItem.categoryLevel1.isEmpty ? "选择类别" : editedItem.categoryLevel1)
+                                    .foregroundColor(editedItem.categoryLevel1.isEmpty ? .blue : .primary)
                                 Spacer()
                                 Image(systemName: "chevron.right")
                                     .foregroundColor(.gray)
@@ -96,12 +111,31 @@ struct ItemDetailView: View {
                             Spacer()
                         }
                         
-                        if !editedItem.category.isEmpty {
-                            Text(editedItem.category)
+                        if !editedItem.categoryLevel1.isEmpty {
+                            Text(editedItem.categoryLevel1)
                                 .font(.subheadline)
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 6)
                                 .background(Color.blue.opacity(0.1))
+                                .foregroundColor(.blue)
+                                .cornerRadius(6)
+                        }
+                        // Optionally display level 2 and 3 categories if they exist
+                        if let level2 = editedItem.categoryLevel2, !level2.isEmpty {
+                            Text("二级分类：\(level2)")
+                                .font(.caption)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(Color.blue.opacity(0.05))
+                                .foregroundColor(.blue)
+                                .cornerRadius(6)
+                        }
+                        if let level3 = editedItem.categoryLevel3, !level3.isEmpty {
+                            Text("三级分类：\(level3)")
+                                .font(.caption)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(Color.blue.opacity(0.05))
                                 .foregroundColor(.blue)
                                 .cornerRadius(6)
                         }
@@ -178,22 +212,29 @@ struct ItemDetailView: View {
             ))
         }
         .sheet(isPresented: $showingCategoryPicker) {
-            CategoryPickerView(selectedCategory: $editedItem.category, itemManager: itemManager)
+            CategoryPickerView(selectedCategoryLevel1: $editedItem.categoryLevel1, selectedCategoryLevel2: $editedItem.categoryLevel2, selectedCategoryLevel3: $editedItem.categoryLevel3, itemManager: itemManager)
+                .environmentObject(supabaseService) // Pass supabaseService as environment object
         }
     }
 }
 
 struct ItemDetailView_Previews: PreviewProvider {
     static var previews: some View {
-        NavigationView {
+        let supabaseService = SupabaseService()
+        let authService = AuthService(supabaseClient: supabaseService.client)
+        let itemManager = ItemManager(authService: authService, supabaseService: supabaseService)
+        
+        return NavigationView {
             ItemDetailView(item: Item(
                 name: "示例物品",
                 location: "书房",
                 description: "这是一个示例物品",
-                category: "电子产品",
+                categoryLevel1: "电子产品", // Use categoryLevel1
+                categoryLevel2: nil, // Add categoryLevel2
+                categoryLevel3: nil, // Add categoryLevel3
                 estimatedPrice: 100.0,
-                imageData: nil
-            ), itemManager: ItemManager())
+                imageURL: nil
+            ), itemManager: itemManager)
         }
     }
 }
