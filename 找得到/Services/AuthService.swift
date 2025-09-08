@@ -1,6 +1,7 @@
 import Foundation
 import Supabase
 
+@MainActor
 class AuthService: ObservableObject {
     @Published var isAuthenticated: Bool = false
     @Published var errorMessage: String? = nil
@@ -12,14 +13,16 @@ class AuthService: ObservableObject {
         self.client = supabaseClient
         // Attempt to restore session on initialization
         Task {
-            await observeAuthStateChanges()
             await fetchCurrentUserSession()
+        }
+        Task {
+            await observeAuthStateChanges()
         }
     }
 
     private func observeAuthStateChanges() async {
         for await state in client.auth.authStateChanges {
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 switch state.event { // Changed to state.event
                 case .signedIn:
                     self.isAuthenticated = true
@@ -36,6 +39,15 @@ class AuthService: ObservableObject {
                         self.isAuthenticated = false
                         self.user = nil
                     }
+                case .passwordRecovery:
+                    // Handle password recovery event
+                    print("Password recovery event triggered")
+                case .userUpdated:
+                    // Handle user updated event
+                    Task { await self.fetchCurrentUser() }
+                case .mfaChallengeVerified:
+                    // Handle MFA challenge verified event
+                    print("MFA challenge verified")
                 @unknown default:
                     print("Unknown AuthChangeEvent: \(state.event)")
                     self.isAuthenticated = false
@@ -94,14 +106,56 @@ class AuthService: ObservableObject {
 
     func signIn(email: String, password: String) async {
         errorMessage = nil
+        print("开始登录请求: \(email)")
+        
         do {
-            _ = try await client.auth.signIn(email: email, password: password)
+            print("调用 Supabase auth.signIn...")
+            let response = try await client.auth.signIn(email: email, password: password)
+            print("Supabase 登录响应: \(response)")
+            
             DispatchQueue.main.async {
                 self.isAuthenticated = true
+                print("登录成功，设置 isAuthenticated = true")
             }
         } catch {
+            print("登录失败，错误详情: \(error)")
+            print("错误类型: \(type(of: error))")
+            print("错误描述: \(error.localizedDescription)")
+            
+            // 检查是否是网络相关错误
+            if let urlError = error as? URLError {
+                print("URLError 代码: \(urlError.code.rawValue)")
+                print("URLError 描述: \(urlError.localizedDescription)")
+                
+                switch urlError.code {
+                case .notConnectedToInternet:
+                    DispatchQueue.main.async {
+                        self.errorMessage = "网络连接失败，请检查网络设置"
+                    }
+                case .timedOut:
+                    DispatchQueue.main.async {
+                        self.errorMessage = "连接超时，请稍后重试"
+                    }
+                case .cannotConnectToHost:
+                    DispatchQueue.main.async {
+                        self.errorMessage = "无法连接到服务器，请检查网络"
+                    }
+                case .secureConnectionFailed:
+                    DispatchQueue.main.async {
+                        self.errorMessage = "SSL连接失败，请检查网络设置或稍后重试"
+                    }
+                default:
+                    DispatchQueue.main.async {
+                        self.errorMessage = "网络错误: \(urlError.localizedDescription)"
+                    }
+                }
+            } else {
+                DispatchQueue.main.async {
+                    self.errorMessage = error.localizedDescription
+                }
+            }
+            
             DispatchQueue.main.async {
-                self.errorMessage = error.localizedDescription
                 self.isAuthenticated = false
             }
         }

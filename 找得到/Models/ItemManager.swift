@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import Supabase // Add this import
 
+@MainActor
 class ItemManager: ObservableObject {
     @Published var items: [Item] = []
     @Published var categoryOrder: [String] = [] // 添加类别排序
@@ -43,8 +44,14 @@ class ItemManager: ObservableObject {
         // Set up auth state observation
         authStateChangeTask = Task { [weak self] in
             guard let self = self else { return }
-            for await _ in authService.$isAuthenticated.values {
-                await self.handleAuthStateChange()
+            // Create a reference to the publisher on the main thread
+            let isAuthenticatedPublisher = self.authService.$isAuthenticated
+            // Observe the publisher
+            for await isAuthenticated in isAuthenticatedPublisher.values {
+                // 避免重复处理相同的认证状态
+                if isAuthenticated != self.authService.isAuthenticated {
+                    await self.handleAuthStateChange()
+                }
             }
         }
         
@@ -64,14 +71,14 @@ class ItemManager: ObservableObject {
     }
 
     private func handleAuthStateChange() async {
+        print("Auth state changed. Current state: \(authService.isAuthenticated)")
+        
         if authService.isAuthenticated {
-            print("Auth state changed to signed in. Loading items from Supabase.")
+            print("Loading items from Supabase.")
             await loadItemsFromSupabase()
         } else {
-            print("Auth state changed to signed out. Clearing items and loading local.")
-            DispatchQueue.main.async {
-                self.items = [] // Clear current items
-            }
+            print("Clearing items and loading local.")
+            self.items = [] // Clear current items (already on main thread)
             loadLocalItems() // Load from UserDefaults or keep empty
         }
     }
@@ -104,17 +111,39 @@ class ItemManager: ObservableObject {
             }
         }
         if hasChanges {
-            saveItems()
+            // 只保存到本地，避免触发 Supabase 操作
+            if let encoded = try? JSONEncoder().encode(items) {
+                UserDefaults.standard.set(encoded, forKey: saveKey)
+            }
+            print("Assigned item numbers and saved locally.")
         }
     }
     
     // MARK: - 基本操作
     
-    func addItem(_ item: Item) async throws { // Make it async throws
+    func addItem(_ item: Item) async throws {
         var newItem = item
-        // If authenticated, set the userID for the item
-        if let userID = authService.user?.id {
+        
+        // 如果已认证，设置用户ID和用户信息
+        if let userID = await authService.user?.id {
             newItem.userID = userID
+            
+            // 获取用户信息（姓名和电话号码）
+            do {
+                if let userInfo = try await supabaseService.fetchUserInfo(userID: userID) {
+                    newItem.userName = userInfo.user_name
+                    newItem.phoneNumber = userInfo.phone_number
+                    print("获取到用户信息: 姓名=\(userInfo.user_name ?? "无"), 电话=\(userInfo.phone_number ?? "无")")
+                } else {
+                    print("未找到用户信息，使用默认值")
+                }
+            } catch {
+                print("获取用户信息失败: \(error.localizedDescription)")
+                // 继续执行，不因为获取用户信息失败而中断
+                // 设置默认值
+                newItem.userName = nil
+                newItem.phoneNumber = nil
+            }
         }
 
         // 如果物品没有编号，自动生成
@@ -122,56 +151,56 @@ class ItemManager: ObservableObject {
             newItem.itemNumber = generateItemNumber()
         }
         
-        // 先尝试上传到 Supabase，成功后再更新本地数据和UI
-        if authService.isAuthenticated {
-            print("Attempting to upload item \(newItem.name) to Supabase...")
-            do {
-                try await supabaseService.uploadItem(item: newItem)
-                print("Item uploaded to Supabase successfully: \(newItem.name)")
-            } catch {
-                print("Error uploading item \(newItem.name) to Supabase: \(error.localizedDescription)")
-                throw error // Re-throw the error to be handled by the caller
-            }
-        }
-        
+        // 立即保存到本地，提供快速响应
         DispatchQueue.main.async {
             self.items.append(newItem)
             self.saveItems()
             
-            // 确保新物品的类别也被添加到usedCategories和categoryOrder中
-            // 这里使用一级分类
+            // 确保新物品的类别也被添加到usedCategories中
             if !newItem.categoryLevel1.isEmpty {
                 self.addCategory(level1: newItem.categoryLevel1)
             }
-
-            // 在后台异步上传图片和物品到 Supabase
+        }
+        
+        // 在后台异步上传到云端
+        if authService.isAuthenticated {
             Task {
                 do {
-                    var itemToUpload = newItem // Make a mutable copy for upload
-
-                    if let imageData = itemToUpload.imageURL?.data(using: .utf8), // Assuming imageURL can be used to retrieve data or it's just a placeholder
-                       let originalImage = UIImage(data: imageData) { // We need the original image to compress
-                        // 如果有图片数据，先上传图片
-                        let imageFileName = "item_\(itemToUpload.id.uuidString).jpeg"
-                        let uploadedImageURL = try await self.supabaseService.uploadImage(imageData: originalImage.jpegData(compressionQuality: 0.7)!, fileName: imageFileName)
-                        itemToUpload.imageURL = uploadedImageURL // 更新为实际的图片 URL
-                        
-                        // 更新本地 items 数组中的 imageURL，确保 UI 反映最新状态
-                        DispatchQueue.main.async {
-                            if let index = self.items.firstIndex(where: { $0.id == itemToUpload.id }) {
-                                self.items[index].imageURL = uploadedImageURL
-                                self.saveItems() // 重新保存本地，更新图片URL
+                    print("开始后台上传物品到云端: \(newItem.name)")
+                    
+                    var itemToUpload = newItem
+                    
+                    // 如果有图片数据，先上传图片
+                    if let imageURLString = itemToUpload.imageURL {
+                        // 检查是否是Base64编码的图片数据
+                        if let imageData = Data(base64Encoded: imageURLString),
+                           let originalImage = UIImage(data: imageData) {
+                            print("开始上传图片: \(newItem.name)")
+                            let imageFileName = "item_\(itemToUpload.id.uuidString).jpeg"
+                            let uploadedImageURL = try await self.supabaseService.uploadImage(
+                                imageData: originalImage.jpegData(compressionQuality: 0.7)!, 
+                                fileName: imageFileName
+                            )
+                            itemToUpload.imageURL = uploadedImageURL
+                            print("图片上传完成: \(newItem.name), URL: \(uploadedImageURL)")
+                            
+                            // 更新本地数据中的图片URL
+                            DispatchQueue.main.async {
+                                if let index = self.items.firstIndex(where: { $0.id == itemToUpload.id }) {
+                                    self.items[index].imageURL = uploadedImageURL
+                                    self.saveItems()
+                                }
                             }
                         }
                     }
 
                     // 上传物品到 Supabase
                     try await self.supabaseService.uploadItem(item: itemToUpload)
-                    print("Item \(itemToUpload.name) uploaded to Supabase successfully.")
+                    print("物品上传到云端完成: \(newItem.name)")
 
                 } catch {
-                    print("Background Supabase upload failed for item \(newItem.name): \(error.localizedDescription)")
-                    // TODO: 可以添加更复杂的错误处理，例如将失败的物品标记为需要重试上传
+                    print("后台上传失败 - 物品: \(newItem.name), 错误: \(error.localizedDescription)")
+                    // 可以在这里添加重试逻辑或错误通知
                 }
             }
         }
@@ -407,7 +436,7 @@ class ItemManager: ObservableObject {
             DispatchQueue.main.async {
                 self.items = fetchedItems
                 print("Loaded \(self.items.count) items from Supabase.")
-                self.assignItemNumbers()
+                // 不在这里调用 assignItemNumbers，避免循环
                 self.updateCategoriesFromExistingItems() // 在加载物品后更新类别列表
             }
         } catch {
@@ -418,7 +447,7 @@ class ItemManager: ObservableObject {
         }
     }
     
-    private func saveItems() {
+    @MainActor private func saveItems() {
         // Always save locally first for responsiveness
         if let encoded = try? JSONEncoder().encode(items) {
             UserDefaults.standard.set(encoded, forKey: saveKey)

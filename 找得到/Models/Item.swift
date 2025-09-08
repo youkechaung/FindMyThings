@@ -19,6 +19,8 @@ struct Item: Identifiable, Codable, Equatable {
     var imageURL: String? // Changed from imageData: Data?
     var createdAt: Date // Changed from dateCreated
     var userID: UUID? // New: Link to Supabase user ID
+    var userName: String? // New: User name from easyfind_userinfo
+    var phoneNumber: String? // New: Phone number from easyfind_userinfo
 
     enum CodingKeys: String, CodingKey {
         case id, name, location, description
@@ -33,12 +35,14 @@ struct Item: Identifiable, Codable, Equatable {
         case imageURL = "image_url" // Map imageURL to image_url
         case createdAt = "created_at" // Map createdAt to created_at
         case userID = "user_id" // Map userID to user_id
+        case userName = "user_name" // Map userName to user_name
+        case phoneNumber = "phone_number" // Map phoneNumber to phone_number
         case categoryLevel1 = "category_level_1"
         case categoryLevel2 = "category_level_2"
         case categoryLevel3 = "category_level_3"
     }
 
-    init(id: UUID = UUID(), itemNumber: String = "", name: String, location: String, description: String = "", categoryLevel1: String = "", categoryLevel2: String? = nil, categoryLevel3: String? = nil, estimatedPrice: Double = 0, isInUse: Bool = false, lastUsedDate: Date? = nil, useCount: Int = 0, purchaseDate: Date? = Date(), maintenanceInterval: TimeInterval? = nil, lastMaintenanceDate: Date? = nil, imageURL: String? = nil, userID: UUID? = nil) {
+    init(id: UUID = UUID(), itemNumber: String = "", name: String, location: String, description: String = "", categoryLevel1: String = "", categoryLevel2: String? = nil, categoryLevel3: String? = nil, estimatedPrice: Double = 0, isInUse: Bool = false, lastUsedDate: Date? = nil, useCount: Int = 0, purchaseDate: Date? = Date(), maintenanceInterval: TimeInterval? = nil, lastMaintenanceDate: Date? = nil, imageURL: String? = nil, userID: UUID? = nil, userName: String? = nil, phoneNumber: String? = nil) {
         self.id = id
         self.itemNumber = itemNumber
         self.name = name
@@ -57,6 +61,8 @@ struct Item: Identifiable, Codable, Equatable {
         self.imageURL = imageURL
         self.createdAt = Date()
         self.userID = userID
+        self.userName = userName
+        self.phoneNumber = phoneNumber
     }
     
     // 计算使用频率（次数/天）

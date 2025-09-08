@@ -5,25 +5,30 @@ import Supabase // Import Supabase
 struct FindThingsApp: App {
     @StateObject private var supabaseService = SupabaseService()
     @StateObject private var authService: AuthService
-    @StateObject private var itemManager: ItemManager
+    @State private var itemManager: ItemManager?
     
     init() {
+        print("FindThingsApp init started")
         let supabaseService = SupabaseService()
+        print("SupabaseService created")
         let authService = AuthService(supabaseClient: supabaseService.client)
+        print("AuthService created")
         _supabaseService = StateObject(wrappedValue: supabaseService)
         _authService = StateObject(wrappedValue: authService)
-        _itemManager = StateObject(wrappedValue: ItemManager(authService: authService, supabaseService: supabaseService))
+        print("FindThingsApp init completed")
     }
     
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .environmentObject(itemManager)
+                .environmentObject(itemManager ?? ItemManager(authService: authService, supabaseService: supabaseService))
                 .environmentObject(supabaseService) // Inject SupabaseService
                 .environmentObject(authService)     // Inject AuthService
                 .onAppear {
-                    // 为现有物品分配编号
-                    itemManager.assignItemNumbers()
+                    if itemManager == nil {
+                        print("Creating ItemManager on appear")
+                        itemManager = ItemManager(authService: authService, supabaseService: supabaseService)
+                    }
                 }
         }
     }

@@ -9,51 +9,106 @@ struct RegistrationView: View {
     @State private var alertMessage = ""
 
     var body: some View {
-        NavigationView {
-            VStack(spacing: 20) {
+        VStack(spacing: 30) {
+            // 标题
+            VStack(spacing: 10) {
                 Text("注册新账号")
                     .font(.largeTitle)
-                    .fontWeight(.bold)
-
-                TextField("邮箱", text: $email)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .autocapitalization(.none)
-                    .keyboardType(.emailAddress)
-                    .padding(.horizontal)
-
-                SecureField("密码", text: $password)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .padding(.horizontal)
-
-                SecureField("确认密码", text: $confirmPassword)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .padding(.horizontal)
-
-                Button(action: register) {
+                    .foregroundColor(.blue)
+                
+                Text("创建您的账户")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.top, 50)
+            
+            // 输入表单
+            VStack(spacing: 20) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("邮箱")
+                        .font(.headline)
+                        .foregroundColor(.primary)
+                    
+                    TextField("请输入邮箱地址", text: $email)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .autocapitalization(.none)
+                        .keyboardType(.emailAddress)
+                        .disableAutocorrection(true)
+                }
+                
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("密码")
+                        .font(.headline)
+                        .foregroundColor(.primary)
+                    
+                    SecureField("请输入密码", text: $password)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                }
+                
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("确认密码")
+                        .font(.headline)
+                        .foregroundColor(.primary)
+                    
+                    SecureField("请再次输入密码", text: $confirmPassword)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                }
+            }
+            .padding(.horizontal, 30)
+            
+            // 注册按钮
+            Button(action: register) {
+                HStack {
                     Text("注册")
                         .font(.headline)
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.blue)
-                        .cornerRadius(10)
                 }
-                .padding(.horizontal)
-
-                if let errorMessage = authService.errorMessage {
-                    Text(errorMessage)
-                        .foregroundColor(.red)
-                        .padding(.horizontal)
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 50)
+                .background(Color.blue)
+                .cornerRadius(12)
+            }
+            .padding(.horizontal, 30)
+            .disabled(email.isEmpty || password.isEmpty || confirmPassword.isEmpty)
+            .opacity(email.isEmpty || password.isEmpty || confirmPassword.isEmpty ? 0.6 : 1.0)
+            
+            // 错误信息
+            if let errorMessage = authService.errorMessage {
+                Text(errorMessage)
+                    .foregroundColor(.red)
+                    .font(.caption)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 30)
+            }
+            
+            Spacer()
+            
+            // 返回登录链接
+            VStack(spacing: 10) {
+                Text("已有账号？")
+                    .font(.callout)
+                    .foregroundColor(.secondary)
+                
+                Button("返回登录") {
+                    // 这里可以添加返回登录的逻辑
                 }
-
-                Spacer()
+                .font(.callout)
+                .foregroundColor(.blue)
             }
-            .padding(.vertical)
-            .navigationTitle("注册")
-            .alert(isPresented: $showingAlert) {
-                Alert(title: Text("注册失败"), message: Text(alertMessage), dismissButton: .default(Text("确定")))
-            }
+            .padding(.bottom, 30)
         }
+        .background(Color(.systemBackground))
+        .alert(isPresented: $showingAlert) {
+            Alert(
+                title: Text("注册失败"), 
+                message: Text(alertMessage), 
+                dismissButton: .default(Text("确定"))
+            )
+        }
+    }
+    
+    private func hideKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
 
     private func register() {

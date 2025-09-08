@@ -34,7 +34,7 @@ struct AddItemView: View {
     @State private var detectedItems: [SegmentedItem] = [] // New: Store detected items
     @State private var selectedDetectedItemIDs: Set<UUID> = [] // New: Store selected item IDs
     @State private var editingSegmentedItem: SegmentedItem? // New: Store item being edited
-
+    
     enum InputMethod {
         case manual
         case aiRecognition
@@ -462,38 +462,33 @@ struct AddItemView: View {
         for itemID in selectedDetectedItemIDs {
             guard let detectedItem = detectedItems.first(where: { $0.id == itemID }) else { continue }
             
+            // 将图片数据转换为Base64字符串，用于本地存储
             var itemImageURL: String? = nil
             if let imageData = detectedItem.croppedImageData {
-                do {
-                    itemImageURL = try await supabaseService.uploadImage(imageData: imageData, fileName: "item_\(UUID().uuidString).jpeg")
-                    print("Image uploaded to Supabase Storage for \(detectedItem.name): \(itemImageURL ?? "N/A")")
-                } catch {
-                    print("Error uploading image to Supabase Storage for \(detectedItem.name): \(error.localizedDescription)")
-                    // Don't set overallSuccess to false here, as image upload failure might not prevent item saving
-                    // It will be handled if itemManager.addItem throws an error due to missing imageURL
-                    itemImageURL = nil // Ensure URL is nil on error
-                }
+                itemImageURL = imageData.base64EncodedString()
             }
             
             let item = Item(
-                itemNumber: detectedItem.itemNumber, // Add itemNumber
+                itemNumber: detectedItem.itemNumber,
                 name: detectedItem.name,
                 location: locationPath,
                 description: detectedItem.description,
-                categoryLevel1: detectedItem.categoryLevel1, // Use categoryLevel1
-                categoryLevel2: detectedItem.categoryLevel2, // Use categoryLevel2
-                categoryLevel3: detectedItem.categoryLevel3, // Use categoryLevel3
+                categoryLevel1: detectedItem.categoryLevel1,
+                categoryLevel2: detectedItem.categoryLevel2,
+                categoryLevel3: detectedItem.categoryLevel3,
                 estimatedPrice: detectedItem.estimatedPrice,
                 imageURL: itemImageURL,
-                userID: authService.user?.id // Pass userID
+                userID: authService.user?.id,
+                userName: nil, // 将在 ItemManager 中从 easyfind_userinfo 获取
+                phoneNumber: nil // 将在 ItemManager 中从 easyfind_userinfo 获取
             )
             
             do {
                 try await itemManager.addItem(item)
-                print("Item saved successfully locally and to Supabase (if authenticated).")
+                print("物品已保存到本地: \(detectedItem.name)")
                 itemsSuccessfullyAdded += 1
             } catch {
-                print("Error saving item: \(error.localizedDescription)")
+                print("保存物品到本地失败: \(error.localizedDescription)")
                 saveErrorMessage = "保存物品 \(detectedItem.name) 失败：\(error.localizedDescription)"
                 showingSaveErrorAlert = true
                 overallSuccess = false
@@ -526,35 +521,32 @@ struct AddItemView: View {
         let locationPath = selectedLocation?.fullPath ?? ""
         var itemImageURL: String? = nil
 
+        // 将图片数据转换为Base64字符串，用于本地存储
         if let selectedImage = selectedImage, let imageData = selectedImage.jpegData(compressionQuality: 0.8) {
-            do {
-                itemImageURL = try await supabaseService.uploadImage(imageData: imageData, fileName: "item_\(UUID().uuidString).jpeg")
-                print("Image uploaded to Supabase Storage: \(itemImageURL ?? "N/A")")
-            } catch {
-                print("Error uploading image to Supabase Storage: \(error.localizedDescription)")
-                itemImageURL = nil // Ensure URL is nil on error
-            }
+            itemImageURL = imageData.base64EncodedString()
         }
         
         let item = Item(
-            itemNumber: previewItemNumber, // Add itemNumber
+            itemNumber: previewItemNumber,
             name: name,
             location: locationPath,
             description: description,
-            categoryLevel1: categoryLevel1, // Use categoryLevel1
-            categoryLevel2: categoryLevel2, // Use categoryLevel2
-            categoryLevel3: categoryLevel3, // Use categoryLevel3
+            categoryLevel1: categoryLevel1,
+            categoryLevel2: categoryLevel2,
+            categoryLevel3: categoryLevel3,
             estimatedPrice: estimatedPrice,
-            imageURL: itemImageURL, // Use the URL from Supabase Storage
-            userID: authService.user?.id // Pass userID
+            imageURL: itemImageURL,
+            userID: authService.user?.id,
+            userName: nil, // 将在 ItemManager 中从 easyfind_userinfo 获取
+            phoneNumber: nil // 将在 ItemManager 中从 easyfind_userinfo 获取
         )
         
         do {
             try await itemManager.addItem(item)
-            print("Manual item saved successfully locally and to Supabase (if authenticated).")
+            print("手动添加的物品已保存到本地: \(name)")
             dismiss()
         } catch {
-            print("Error saving manual item: \(error.localizedDescription)")
+            print("保存手动添加的物品失败: \(error.localizedDescription)")
             saveErrorMessage = "保存物品失败：\(error.localizedDescription)"
             showingSaveErrorAlert = true
         }
@@ -664,7 +656,7 @@ struct CategoryPickerView: View {
                             // TODO: Implement adding level 3 category
                         }
                         newCategory = ""
-                        dismiss()
+        dismiss()
                     }
                 }
             } message: {

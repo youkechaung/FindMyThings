@@ -6,66 +6,171 @@ struct LoginView: View {
     @State private var password = ""
     @State private var showingAlert = false
     @State private var alertMessage = ""
+    
+    // 添加调试状态变量
+    @State private var isDebugging = false
+    @State private var lastInputType = ""
+    @State private var lastInputTime = ""
 
     var body: some View {
-        NavigationView {
-            VStack(spacing: 20) {
-                Text("登录")
+        VStack(spacing: 30) {
+            // 标题
+            VStack(spacing: 10) {
+                Text("找得到")
                     .font(.largeTitle)
-                    .fontWeight(.bold)
-
-                TextField("邮箱", text: $email)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .autocapitalization(.none)
-                    .keyboardType(.emailAddress)
-                    .padding(.horizontal)
-
-                SecureField("密码", text: $password)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .padding(.horizontal)
-
-                Button(action: login) {
+                    .foregroundColor(.blue)
+                
+                Text("智能物品管理")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.top, 50)
+            
+            // 输入表单
+            VStack(spacing: 20) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("邮箱")
+                        .font(.headline)
+                        .foregroundColor(.primary)
+                    
+                    TextField("请输入邮箱地址", text: $email)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .autocapitalization(.none)
+                        .keyboardType(.emailAddress)
+                        .disableAutocorrection(true)
+                        .onChange(of: email, perform: { newValue in
+                            lastInputType = "邮箱"
+                            lastInputTime = String(describing: Date())
+                            if isDebugging {
+                                print("邮箱输入: \(newValue)")
+                            }
+                        })
+                        .border(Color.blue, width: 1) // 为了清晰可见
+                }
+                
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("密码")
+                        .font(.headline)
+                        .foregroundColor(.primary)
+                    
+                    SecureField("请输入密码", text: $password)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .onChange(of: password, perform: { newValue in
+                            lastInputType = "密码"
+                            lastInputTime = String(describing: Date())
+                            if isDebugging {
+                                print("密码输入: 长度为 \(newValue.count) 的字符串")
+                            }
+                        })
+                        .border(Color.blue, width: 1) // 为了清晰可见
+                }
+            }
+            .padding(.horizontal, 30)
+            
+            // 登录按钮
+            Button(action: login) {
+                HStack {
                     Text("登录")
                         .font(.headline)
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.blue)
-                        .cornerRadius(10)
                 }
-                .padding(.horizontal)
-
-                if let errorMessage = authService.errorMessage {
-                    Text(errorMessage)
-                        .foregroundColor(.red)
-                        .padding(.horizontal)
-                }
-
-                Spacer()
-
-                // Option to navigate to registration
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 50)
+                .background(Color.blue)
+                .cornerRadius(12)
+            }
+            .padding(.horizontal, 30)
+            .disabled(email.isEmpty || password.isEmpty)
+            .opacity(email.isEmpty || password.isEmpty ? 0.6 : 1.0)
+            
+            // 错误信息
+            if let errorMessage = authService.errorMessage {
+                Text(errorMessage)
+                    .foregroundColor(.red)
+                    .font(.caption)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 30)
+            }
+            
+            Spacer()
+            
+            // 注册链接
+            VStack(spacing: 10) {
+                Text("还没有账号？")
+                    .font(.callout)
+                    .foregroundColor(.secondary)
+                
                 NavigationLink(destination: RegistrationView()) {
-                    Text("没有账号？注册一个")
+                    Text("立即注册")
                         .font(.callout)
                         .foregroundColor(.blue)
                 }
             }
-            .padding(.vertical)
-            .navigationTitle("登录")
-            .alert(isPresented: $showingAlert) {
-                Alert(title: Text("登录失败"), message: Text(alertMessage), dismissButton: .default(Text("确定")))
-            }
+            .padding(.bottom, 30)
         }
+        .background(Color(.systemBackground))
+        .alert(isPresented: $showingAlert) {
+            Alert(
+                title: Text("登录失败"), 
+                message: Text(alertMessage), 
+                dismissButton: .default(Text("确定"))
+            )
+        }
+        // 调试信息视图
+        .onTapGesture {
+            // 双击切换调试模式
+            let tapCount = UITapGestureRecognizer()
+            tapCount.numberOfTapsRequired = 2
+            isDebugging.toggle()
+        }
+        .overlay(Group {
+            if isDebugging {
+                VStack(alignment: .leading) {
+                    Text("调试模式")
+                        .font(.caption)
+                        .foregroundColor(.red)
+                    Text("最后输入类型: \(lastInputType)")
+                        .font(.caption)
+                        .foregroundColor(.red)
+                    Text("最后输入时间: \(lastInputTime)")
+                        .font(.caption)
+                        .foregroundColor(.red)
+                    Text("邮箱内容: \(email)")
+                        .font(.caption)
+                        .foregroundColor(.red)
+                    Text("密码长度: \(password.count)")
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
+                .position(x: 150, y: 40)
+            }
+        })
+    }
+    
+    private func hideKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
 
     private func login() {
         authService.errorMessage = nil // Clear previous error messages
+        print("开始登录: \(email)")
+        print("密码长度: \(password.count)")
+        
         Task {
-            await authService.signIn(email: email, password: password)
-            if !authService.isAuthenticated && authService.errorMessage != nil {
-                alertMessage = authService.errorMessage ?? "登录失败。请检查您的邮箱和密码。"
+            do {
+                await authService.signIn(email: email, password: password)
+                print("登录完成，认证状态: \(authService.isAuthenticated)")
+                
+                if !authService.isAuthenticated && authService.errorMessage != nil {
+                    alertMessage = authService.errorMessage ?? "登录失败。请检查您的邮箱和密码。"
+                    showingAlert = true
+                }
+            } catch {
+                print("登录过程中出现错误: \(error)")
+                alertMessage = "登录过程中出现错误: \(error.localizedDescription)"
                 showingAlert = true
             }
         }
     }
 }
+

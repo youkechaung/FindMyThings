@@ -33,7 +33,68 @@ struct ContentView: View {
     
     var body: some View {
         Group {
+            // 正常的认证状态检查
             if authService.isAuthenticated {
+                // 临时简化版本，避免复杂的UI导致卡死
+                // VStack(spacing: 20) {
+                //     Text("登录成功！")
+                //         .font(.largeTitle)
+                //         .foregroundColor(.green)
+                //         .padding()
+                    
+                //     Text("欢迎使用找得到")
+                //         .font(.headline)
+                //         .foregroundColor(.secondary)
+                //         .padding()
+                    
+                //     VStack(spacing: 15) {
+                //         Button("添加物品") {
+                //             showingAddItem = true
+                //         }
+                //         .foregroundColor(.white)
+                //         .frame(maxWidth: .infinity)
+                //         .frame(height: 50)
+                //         .background(Color.blue)
+                //         .cornerRadius(12)
+                        
+                //         Button("图片分析") {
+                //             showingImageAnalysis = true
+                //         }
+                //         .foregroundColor(.blue)
+                //         .frame(maxWidth: .infinity)
+                //         .frame(height: 50)
+                //         .background(Color.blue.opacity(0.1))
+                //         .cornerRadius(12)
+                        
+                //         Button("退出登录") {
+                //             Task {
+                //                 await authService.signOut()
+                //             }
+                //         }
+                //         .foregroundColor(.white)
+                //         .frame(maxWidth: .infinity)
+                //         .frame(height: 50)
+                //         .background(Color.red)
+                //         .cornerRadius(12)
+                //     }
+                //     .padding(.horizontal, 30)
+                    
+                //     Spacer()
+                // }
+                // .padding()
+                // .sheet(isPresented: $showingAddItem) {
+                //     AddItemView()
+                //         .environmentObject(itemManager)
+                //         .environmentObject(supabaseService)
+                // }
+                // .sheet(isPresented: $showingImageAnalysis) {
+                //     ImageAnalysisView()
+                //         .environmentObject(itemManager)
+                //         .environmentObject(supabaseService)
+                // }
+                
+                // 原始复杂UI暂时注释掉，避免卡死
+                
                 TabView {
                     // 主页 - 物品管理
                     HomeView(
@@ -106,6 +167,7 @@ struct ContentView: View {
             .onDisappear {
                 removeKeyboardNotifications()
                 }
+                
             } else {
                 LoginView()
             }
