@@ -55,11 +55,12 @@ class ItemManager: ObservableObject {
             }
         }
         
-        // Initial load based on current auth state
-        if authService.isAuthenticated {
+        // 优先从本地加载
+        loadLocalItems()
+        
+        // 如果本地没有数据且用户已登录，则从Supabase加载
+        if authService.isAuthenticated && items.isEmpty {
             Task { await loadItemsFromSupabase() }
-        } else {
-            loadLocalItems()
         }
         
         assignItemNumbers()
@@ -74,10 +75,26 @@ class ItemManager: ObservableObject {
         print("Auth state changed. Current state: \(authService.isAuthenticated)")
         
         if authService.isAuthenticated {
-            print("Loading items from Supabase.")
-            await loadItemsFromSupabase()
+            // 用户登录后，先检查本地是否有数据
+            if items.isEmpty {
+                print("Local items are empty, loading from Supabase.")
+                await loadItemsFromSupabase()
+            } else {
+                print("Using local items, will sync with Supabase in background.")
+                // 在后台异步同步本地数据到Supabase
+                Task {
+                    do {
+                        if let userID = authService.user?.id {
+                            try await self.supabaseService.saveItems(items: self.items, userID: userID)
+                            print("Local items synced with Supabase successfully.")
+                        }
+                    } catch {
+                        print("Error syncing items to Supabase: \(error.localizedDescription)")
+                    }
+                }
+            }
         } else {
-            print("Clearing items and loading local.")
+            print("User logged out, clearing remote items and loading local.")
             self.items = [] // Clear current items (already on main thread)
             loadLocalItems() // Load from UserDefaults or keep empty
         }

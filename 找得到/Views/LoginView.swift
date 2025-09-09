@@ -116,35 +116,6 @@ struct LoginView: View {
                 dismissButton: .default(Text("确定"))
             )
         }
-        // 调试信息视图
-        .onTapGesture {
-            // 双击切换调试模式
-            let tapCount = UITapGestureRecognizer()
-            tapCount.numberOfTapsRequired = 2
-            isDebugging.toggle()
-        }
-        .overlay(Group {
-            if isDebugging {
-                VStack(alignment: .leading) {
-                    Text("调试模式")
-                        .font(.caption)
-                        .foregroundColor(.red)
-                    Text("最后输入类型: \(lastInputType)")
-                        .font(.caption)
-                        .foregroundColor(.red)
-                    Text("最后输入时间: \(lastInputTime)")
-                        .font(.caption)
-                        .foregroundColor(.red)
-                    Text("邮箱内容: \(email)")
-                        .font(.caption)
-                        .foregroundColor(.red)
-                    Text("密码长度: \(password.count)")
-                        .font(.caption)
-                        .foregroundColor(.red)
-                }
-                .position(x: 150, y: 40)
-            }
-        })
     }
     
     private func hideKeyboard() {
