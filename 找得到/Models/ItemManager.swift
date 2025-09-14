@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Supabase // Add this import
+import UIKit
 
 @MainActor
 class ItemManager: ObservableObject {
@@ -194,6 +195,10 @@ class ItemManager: ObservableObject {
                            let originalImage = UIImage(data: imageData) {
                             print("开始上传图片: \(newItem.name)")
                             let imageFileName = "item_\(itemToUpload.id.uuidString).jpeg"
+                            
+                            // 保存到本地缓存
+                            ImageCacheManager.shared.saveImage(originalImage, withName: imageFileName)
+                            
                             let uploadedImageURL = try await self.supabaseService.uploadImage(
                                 imageData: originalImage.jpegData(compressionQuality: 0.7)!, 
                                 fileName: imageFileName

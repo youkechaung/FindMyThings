@@ -20,50 +20,7 @@ struct ItemDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 // 物品图片部分
-                if let imageURL = editedItem.imageURL {
-                    // 尝试将imageURL作为URL处理
-                    if let url = URL(string: imageURL) {
-                        AsyncImage(url: url) {
-                            image in image
-                                .resizable()
-                                .scaledToFit()
-                                .frame(maxHeight: 300)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                        } placeholder: {
-                            ProgressView()
-                                .frame(maxHeight: 300)
-                        }
-                    } 
-                    // 如果不是URL，尝试将其作为Base64编码的图片数据处理
-                    else if let imageData = Data(base64Encoded: imageURL),
-                           let uiImage = UIImage(data: imageData) {
-                        Image(uiImage: uiImage)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(maxHeight: 300)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                    } 
-                    // 如果都不是，显示占位符
-                    else {
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.gray.opacity(0.2))
-                            .frame(maxHeight: 300)
-                            .overlay(
-                                Image(systemName: "photo")
-                                    .foregroundColor(.gray)
-                                    .font(.largeTitle)
-                            )
-                    }
-                } else {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.gray.opacity(0.2))
-                        .frame(maxHeight: 300)
-                        .overlay(
-                            Image(systemName: "photo")
-                                .foregroundColor(.gray)
-                                .font(.largeTitle)
-                        )
-                }
+                ItemImageView(imageURL: editedItem.imageURL, itemID: editedItem.id)
                 
                 VStack(alignment: .leading, spacing: 12) {
                     if isEditing {
