@@ -24,28 +24,16 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				"找得到-Info.plist",
-				Services/testmyself.swift,
 			);
 			target = 8961D8BE2D557D9B003F0E62 /* 找得到 */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
-
-/* Begin PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
-		890947822E629F4C00E464E1 /* Exceptions for "找得到" folder in "Copy Bundle Resources" phase from "找得到" target */ = {
-			isa = PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet;
-			buildPhase = 8961D8BD2D557D9B003F0E62 /* Resources */;
-			membershipExceptions = (
-				Services/testmyself.swift,
-			);
-		};
-/* End PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		8961D8C12D557D9B003F0E62 /* 找得到 */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				8961DA202D5EBC03003F0E62 /* Exceptions for "找得到" folder in "找得到" target */,
-				890947822E629F4C00E464E1 /* Exceptions for "找得到" folder in "Copy Bundle Resources" phase from "找得到" target */,
 			);
 			path = "找得到";
 			sourceTree = "<group>";

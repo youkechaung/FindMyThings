@@ -88,6 +88,69 @@ class SupabaseService: ObservableObject { // Conform to ObservableObject
         let updated_at: String?
     }
     
+    // MARK: - 应用内用户管理方法
+    
+    // 创建新用户
+    func createUser(user: AppUser) async throws {
+        print("Creating new user: \(user.email)")
+        // 使用 upsert 来处理可能的重复插入
+        _ = try await client.database
+            .from("easyfind_userinfo")
+            .upsert(user)
+            .execute()
+        print("Successfully created user: \(user.email)")
+    }
+    
+    // 根据邮箱获取用户
+    func getUserByEmail(email: String) async throws -> AppUser? {
+        print("Fetching user by email: \(email)")
+        let users: [AppUser] = try await client.database
+            .from("easyfind_userinfo")
+            .select()
+            .eq("email", value: email)
+            .execute()
+            .value
+        
+        print("Found \(users.count) users with email: \(email)")
+        return users.first
+    }
+    
+    // 根据用户ID获取用户
+    func getUserByID(userID: UUID) async throws -> AppUser? {
+        print("Fetching user by ID: \(userID)")
+        let users: [AppUser] = try await client.database
+            .from("easyfind_userinfo")
+            .select()
+            .eq("user_id", value: userID.uuidString)
+            .execute()
+            .value
+        
+        print("Found \(users.count) users with ID: \(userID)")
+        return users.first
+    }
+    
+    // 更新用户信息
+    func updateUser(user: AppUser) async throws {
+        print("Updating user: \(user.email)")
+        _ = try await client.database
+            .from("easyfind_userinfo")
+            .update(user)
+            .eq("id", value: user.id.uuidString)
+            .execute()
+        print("Successfully updated user: \(user.email)")
+    }
+    
+    // 删除用户
+    func deleteUser(userID: UUID) async throws {
+        print("Deleting user: \(userID)")
+        _ = try await client.database
+            .from("easyfind_userinfo")
+            .delete()
+            .eq("id", value: userID.uuidString)
+            .execute()
+        print("Successfully deleted user: \(userID)")
+    }
+    
     // Fetch user info from easyfind_userinfo table
     func fetchUserInfo(userID: UUID) async throws -> UserInfo? {
         print("Fetching user info for user: \(userID)")

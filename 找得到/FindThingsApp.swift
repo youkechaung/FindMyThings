@@ -10,12 +10,17 @@ struct FindThingsApp: App {
     
     init() {
         print("FindThingsApp init started")
+        
+        // 初始化输入助手禁用器，解决约束冲突问题
+        _ = InputAssistantDisabler.shared
+        print("InputAssistantDisabler initialized")
+        
         // 创建Supabase服务
         let tempSupabaseService = SupabaseService()
         print("SupabaseService created")
         
         // 创建认证服务
-        let tempAuthService = AuthService(supabaseClient: tempSupabaseService.client)
+        let tempAuthService = AuthService(supabaseService: tempSupabaseService)
         print("AuthService created")
         
         // 创建物品管理器

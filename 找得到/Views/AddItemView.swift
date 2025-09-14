@@ -478,7 +478,7 @@ struct AddItemView: View {
                 categoryLevel3: detectedItem.categoryLevel3,
                 estimatedPrice: detectedItem.estimatedPrice,
                 imageURL: itemImageURL,
-                userID: authService.user?.id,
+                userID: authService.currentUser?.id,
                 userName: nil,
                 phoneNumber: nil
             )
@@ -528,7 +528,7 @@ struct AddItemView: View {
             categoryLevel3: categoryLevel3,
             estimatedPrice: estimatedPrice,
             imageURL: itemImageURL,
-            userID: authService.user?.id,
+            userID: authService.currentUser?.id,
             userName: nil,
             phoneNumber: nil
         )

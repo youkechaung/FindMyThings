@@ -340,7 +340,7 @@ struct BatchAddItemsView: View {
                         categoryLevel3: item.categoryLevel3, // Use categoryLevel3
                         estimatedPrice: item.estimatedPrice,
                         imageURL: imageURL,
-                        userID: authService.user?.id,
+                        userID: authService.currentUser?.id,
                         userName: nil, // 将在 ItemManager 中从 easyfind_userinfo 获取
                         phoneNumber: nil // 将在 ItemManager 中从 easyfind_userinfo 获取
                     )

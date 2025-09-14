@@ -11,6 +11,7 @@ struct ChatView: View {
     
     @FocusState private var isFocused: Bool
     @State private var scrollProxy: ScrollViewProxy?
+    @StateObject private var keyboardHandler = KeyboardHandler()
     
     var body: some View {
         NavigationView {
@@ -25,7 +26,7 @@ struct ChatView: View {
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
-                .ignoresSafeArea()
+                .ignoresSafeArea(.container, edges: .top)
                 
                 VStack(spacing: 0) {
                     // 欢迎消息（如果没有消息）
@@ -136,8 +137,7 @@ struct ChatView: View {
                             
                             // 输入框
                             HStack {
-                                TextField("输入您的问题...", text: $newMessage)
-                                    .textFieldStyle(PlainTextFieldStyle())
+                                CustomTextField(text: $newMessage, placeholder: "输入您的问题...")
                                     .disabled(isLoading || isRecording)
                                     .focused($isFocused)
                                     .submitLabel(.send)
@@ -184,6 +184,8 @@ struct ChatView: View {
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
                         .background(Color(.systemBackground))
+                        .padding(.bottom, keyboardHandler.keyboardHeight)
+                        .animation(.easeInOut(duration: keyboardHandler.keyboardAnimationDuration), value: keyboardHandler.keyboardHeight)
                     }
                 }
             }
@@ -196,6 +198,55 @@ struct ChatView: View {
                     .font(.title2)
                     .foregroundColor(.gray)
             })
+        }
+    }
+
+}
+
+// MARK: - CustomTextField
+
+struct CustomTextField: UIViewRepresentable {
+    @Binding var text: String
+    let placeholder: String
+    
+    func makeUIView(context: Context) -> UITextField {
+        let textField = UITextField()
+        textField.placeholder = placeholder
+        textField.borderStyle = .none
+        textField.font = UIFont.systemFont(ofSize: 16)
+        
+        // 完全禁用输入助手
+        textField.inputAssistantItem.leadingBarButtonGroups = []
+        textField.inputAssistantItem.trailingBarButtonGroups = []
+        
+        // 设置委托
+        textField.delegate = context.coordinator
+        
+        return textField
+    }
+    
+    func updateUIView(_ uiView: UITextField, context: Context) {
+        uiView.text = text
+    }
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+    
+    class Coordinator: NSObject, UITextFieldDelegate {
+        let parent: CustomTextField
+        
+        init(_ parent: CustomTextField) {
+            self.parent = parent
+        }
+        
+        func textFieldDidChangeSelection(_ textField: UITextField) {
+            parent.text = textField.text ?? ""
+        }
+        
+        func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+            textField.resignFirstResponder()
+            return true
         }
     }
 }
@@ -233,7 +284,7 @@ struct FeatureCard: View {
         .padding()
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .fill(Color(.systemBackground))
+                .fill(Color.white)
                 .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 4)
         )
     }

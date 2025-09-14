@@ -2,11 +2,10 @@ import SwiftUI
 
 struct RegistrationView: View {
     @EnvironmentObject var authService: AuthService
+    @State private var username = ""
     @State private var email = ""
     @State private var password = ""
     @State private var confirmPassword = ""
-    @State private var showingAlert = false
-    @State private var alertMessage = ""
 
     var body: some View {
         VStack(spacing: 30) {
@@ -24,6 +23,17 @@ struct RegistrationView: View {
             
             // 输入表单
             VStack(spacing: 20) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("用户名")
+                        .font(.headline)
+                        .foregroundColor(.primary)
+                    
+                    TextField("请输入用户名", text: $username)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .autocapitalization(.none)
+                        .disableAutocorrection(true)
+                }
+                
                 VStack(alignment: .leading, spacing: 8) {
                     Text("邮箱")
                         .font(.headline)
@@ -69,8 +79,8 @@ struct RegistrationView: View {
                 .cornerRadius(12)
             }
             .padding(.horizontal, 30)
-            .disabled(email.isEmpty || password.isEmpty || confirmPassword.isEmpty)
-            .opacity(email.isEmpty || password.isEmpty || confirmPassword.isEmpty ? 0.6 : 1.0)
+            .disabled(username.isEmpty || email.isEmpty || password.isEmpty || confirmPassword.isEmpty)
+            .opacity(username.isEmpty || email.isEmpty || password.isEmpty || confirmPassword.isEmpty ? 0.6 : 1.0)
             
             // 错误信息
             if let errorMessage = authService.errorMessage {
@@ -89,42 +99,28 @@ struct RegistrationView: View {
                     .font(.callout)
                     .foregroundColor(.secondary)
                 
-                Button("返回登录") {
-                    // 这里可以添加返回登录的逻辑
-                }
-                .font(.callout)
-                .foregroundColor(.blue)
+                NavigationLink("返回登录", destination: LoginView())
+                    .font(.callout)
+                    .foregroundColor(.blue)
             }
             .padding(.bottom, 30)
         }
         .background(Color(.systemBackground))
-        .alert(isPresented: $showingAlert) {
-            Alert(
-                title: Text("注册失败"), 
-                message: Text(alertMessage), 
-                dismissButton: .default(Text("确定"))
-            )
-        }
-    }
-    
-    private func hideKeyboard() {
-        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
 
     private func register() {
-        authService.errorMessage = nil // Clear previous error messages
+        // 清除之前的错误信息
+        authService.errorMessage = nil
+        
+        // 检查密码是否匹配
         guard password == confirmPassword else {
-            alertMessage = "密码和确认密码不匹配。"
-            showingAlert = true
+            authService.errorMessage = "密码和确认密码不匹配。"
             return
         }
 
+        // 调用应用内注册方法
         Task {
-            await authService.signUp(email: email, password: password)
-            if !authService.isAuthenticated && authService.errorMessage != nil {
-                alertMessage = authService.errorMessage ?? "注册失败。请检查您的邮箱和密码。"
-                showingAlert = true
-            }
+            await authService.signUp(username: username, email: email, password: password)
         }
     }
 }

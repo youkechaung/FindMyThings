@@ -244,7 +244,7 @@ struct ItemDetailView: View {
 struct ItemDetailView_Previews: PreviewProvider {
     static var previews: some View {
         let supabaseService = SupabaseService()
-        let authService = AuthService(supabaseClient: supabaseService.client)
+        let authService = AuthService(supabaseService: supabaseService)
         let itemManager = ItemManager(authService: authService, supabaseService: supabaseService)
         
         return NavigationView {

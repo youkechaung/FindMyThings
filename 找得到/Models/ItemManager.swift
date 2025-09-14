@@ -84,7 +84,7 @@ class ItemManager: ObservableObject {
                 // 在后台异步同步本地数据到Supabase
                 Task {
                     do {
-                        if let userID = authService.user?.id {
+                        if let userID = authService.currentUser?.id {
                             try await self.supabaseService.saveItems(items: self.items, userID: userID)
                             print("Local items synced with Supabase successfully.")
                         }
@@ -142,7 +142,7 @@ class ItemManager: ObservableObject {
         var newItem = item
         
         // 如果已认证，设置用户ID和用户信息
-        if let userID = await authService.user?.id {
+        if let userID = await authService.currentUser?.id {
             newItem.userID = userID
             
             // 获取用户信息（姓名和电话号码）
@@ -230,7 +230,7 @@ class ItemManager: ObservableObject {
                 self.saveItems()
                 
                 // Update to Supabase if authenticated
-                if let userID = self.authService.user?.id {
+                if let userID = self.authService.currentUser?.id {
                     print("Attempting to update item \(item.name) in Supabase...")
                     Task {
                         do {
@@ -252,7 +252,7 @@ class ItemManager: ObservableObject {
                 self.saveItems()
                 
                 // Delete from Supabase if authenticated
-                if let userID = self.authService.user?.id {
+                if let userID = self.authService.currentUser?.id {
                     print("Attempting to delete item \(item.name) from Supabase...")
                     Task {
                         do {
@@ -443,7 +443,7 @@ class ItemManager: ObservableObject {
     }
 
     private func loadItemsFromSupabase() async {
-        guard let userID = authService.user?.id else {
+        guard let userID = authService.currentUser?.id else {
             print("User not authenticated, skipping Supabase load")
             return
         }
@@ -472,7 +472,7 @@ class ItemManager: ObservableObject {
         print("Items saved locally.")
 
         // If authenticated, also save to Supabase asynchronously
-        if let userID = authService.user?.id {
+        if let userID = authService.currentUser?.id {
             Task {
                 do {
                     print("Attempting to save \(self.items.count) items to Supabase for user: \(userID)")
