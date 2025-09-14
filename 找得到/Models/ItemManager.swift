@@ -179,9 +179,9 @@ class ItemManager: ObservableObject {
             }
         }
         
-        // 在后台异步上传到云端
+        // 在后台异步上传到云端，不阻塞主线程和返回
         if authService.isAuthenticated {
-            Task {
+            Task.detached { // 使用detached确保任务不会因为调用者的作用域结束而取消
                 do {
                     print("开始后台上传物品到云端: \(newItem.name)")
                     

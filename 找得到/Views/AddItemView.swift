@@ -456,9 +456,9 @@ struct AddItemView: View {
         print("saveSelectedItems 被调用")
         isSaving = true
         let locationPath = selectedLocation?.fullPath ?? ""
-        var overallSuccess = true
-        var itemsSuccessfullyAdded = 0
+        var hasError = false
         
+        // 立即保存所有物品到本地并关闭界面，上传操作在后台进行
         for itemID in selectedDetectedItemIDs {
             guard let detectedItem = detectedItems.first(where: { $0.id == itemID }) else { continue }
             
@@ -479,40 +479,32 @@ struct AddItemView: View {
                 estimatedPrice: detectedItem.estimatedPrice,
                 imageURL: itemImageURL,
                 userID: authService.user?.id,
-                userName: nil, // 将在 ItemManager 中从 easyfind_userinfo 获取
-                phoneNumber: nil // 将在 ItemManager 中从 easyfind_userinfo 获取
+                userName: nil,
+                phoneNumber: nil
             )
             
             do {
+                // 因为addItem方法已经优化为立即返回，所以这里可以继续执行
                 try await itemManager.addItem(item)
                 print("物品已保存到本地: \(detectedItem.name)")
-                itemsSuccessfullyAdded += 1
             } catch {
                 print("保存物品到本地失败: \(error.localizedDescription)")
                 saveErrorMessage = "保存物品 \(detectedItem.name) 失败：\(error.localizedDescription)"
-                showingSaveErrorAlert = true
-                overallSuccess = false
+                hasError = true
             }
         }
         
-        // Only dismiss if all items were added successfully and no error alert is currently shown
-        if overallSuccess && !showingSaveErrorAlert {
-            dismiss()
+        // 立即关闭界面，不等待上传完成
+        dismiss()
+        
+        // 在后台处理错误提示（如果有）
+        Task { @MainActor in
+            isSaving = false
+            
+            if hasError && !showingSaveErrorAlert {
+                showingSaveErrorAlert = true
+            }
         }
-        isSaving = false
-
-        // 如果有物品成功添加，但也有失败，或者全部成功但没有触发 dismiss，可以考虑显示一个总结性提示
-        if itemsSuccessfullyAdded > 0 && itemsSuccessfullyAdded < selectedDetectedItemIDs.count {
-            saveErrorMessage = "部分物品保存成功（\(itemsSuccessfullyAdded) 个），部分失败。请检查错误信息。"
-            showingSaveErrorAlert = true
-        } else if itemsSuccessfullyAdded == 0 && !selectedDetectedItemIDs.isEmpty {
-            saveErrorMessage = "所有选中的物品都未能保存成功。请检查错误信息。"
-            showingSaveErrorAlert = true
-        } else if selectedDetectedItemIDs.isEmpty {
-            // 如果没有选中任何物品，理论上不会走到这里，但为了健壮性，可以处理一下
-            dismiss() // 没有选中物品，直接关闭视图
-        }
-
     }
     
     private func saveManualItem() async {
@@ -537,20 +529,34 @@ struct AddItemView: View {
             estimatedPrice: estimatedPrice,
             imageURL: itemImageURL,
             userID: authService.user?.id,
-            userName: nil, // 将在 ItemManager 中从 easyfind_userinfo 获取
-            phoneNumber: nil // 将在 ItemManager 中从 easyfind_userinfo 获取
+            userName: nil,
+            phoneNumber: nil
         )
         
         do {
+            // 因为addItem方法已经优化为立即返回，所以这里可以在调用后立即关闭界面
             try await itemManager.addItem(item)
             print("手动添加的物品已保存到本地: \(name)")
-            dismiss()
         } catch {
             print("保存手动添加的物品失败: \(error.localizedDescription)")
             saveErrorMessage = "保存物品失败：\(error.localizedDescription)"
-            showingSaveErrorAlert = true
+            
+            // 在后台处理错误提示
+            Task { @MainActor in
+                showingSaveErrorAlert = true
+                isSaving = false
+            }
         }
-        isSaving = false
+        
+        // 立即关闭界面，不等待上传完成
+        dismiss()
+        
+        // 确保isSaving状态被重置
+        Task { @MainActor in
+            if !showingSaveErrorAlert {
+                isSaving = false
+            }
+        }
     }
 }
 
