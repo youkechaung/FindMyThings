@@ -20,7 +20,7 @@ struct ItemDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 // 物品图片部分
-                ItemImageView(imageURL: editedItem.imageURL, itemID: editedItem.id)
+                ItemImageView(itemID: editedItem.id)
                 
                 VStack(alignment: .leading, spacing: 12) {
                     if isEditing {

@@ -33,9 +33,29 @@ struct AppUser: Codable, Identifiable {
         try container.encode(id.uuidString, forKey: .id)
         try container.encode(username, forKey: .username)
         try container.encode(email, forKey: .email)
-        try container.encode(password, forKey: .password)
+        // 将密码转换为字符串格式进行编码
+        try container.encode(String(password), forKey: .password)
         try container.encode(createdAt, forKey: .createdAt)
         try container.encode(updatedAt, forKey: .updatedAt)
+    }
+    
+    // 自定义解码方法，处理int8类型密码
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let idString = try container.decode(String.self, forKey: .id)
+        self.id = UUID(uuidString: idString) ?? UUID()
+        self.username = try container.decode(String.self, forKey: .username)
+        self.email = try container.decode(String.self, forKey: .email)
+        
+        // 处理密码字段，可能为Int8或String类型
+        if let passwordInt = try? container.decode(Int64.self, forKey: .password) {
+            self.password = String(passwordInt)
+        } else {
+            self.password = try container.decode(String.self, forKey: .password)
+        }
+        
+        self.createdAt = try container.decode(Date.self, forKey: .createdAt)
+        self.updatedAt = try container.decode(Date.self, forKey: .updatedAt)
     }
 }
 
@@ -67,7 +87,7 @@ struct UserResponse: Codable {
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
-    
+
     // 自定义编码方法，将 UUID 转换为数据库兼容的格式
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
@@ -77,7 +97,7 @@ struct UserResponse: Codable {
         try container.encode(createdAt, forKey: .createdAt)
         try container.encode(updatedAt, forKey: .updatedAt)
     }
-    
+
     // 自定义解码方法，将数据库中的值转换为 UUID
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)

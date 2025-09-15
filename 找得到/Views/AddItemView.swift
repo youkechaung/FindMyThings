@@ -58,9 +58,9 @@ struct AddItemView: View {
             return true
         }
         if inputMethod == .manual {
-            return name.isEmpty || selectedLocation == nil
+            return name.isEmpty
         } else { // .aiRecognition
-            return selectedDetectedItemIDs.isEmpty || selectedLocation == nil
+            return selectedDetectedItemIDs.isEmpty
         }
     }
     

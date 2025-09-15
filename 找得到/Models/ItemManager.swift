@@ -1,7 +1,8 @@
 import Foundation
 import SwiftUI
-import Supabase // Add this import
+import Supabase
 import UIKit
+import Combine
 
 @MainActor
 class ItemManager: ObservableObject {
@@ -561,5 +562,60 @@ class ItemManager: ObservableObject {
     // 获取所有类别
     func getAllCategories() -> [String] {
         return usedCategories
+    }
+    
+    // MARK: - 图片预加载功能
+    
+    /// 预加载所有物品的图片
+    func preloadImages() async {
+        print("开始预加载图片...")
+        let itemsWithImages = items.filter { $0.imageURL != nil && !$0.imageURL!.isEmpty }
+        print("需要预加载 \(itemsWithImages.count) 张图片")
+        
+        // 创建一个任务组来并发下载图片
+        await withTaskGroup(of: Void.self) { group in
+            for item in itemsWithImages {
+                group.addTask {
+                    await self.preloadImage(for: item)
+                }
+            }
+            
+            // 等待所有任务完成
+            for await _ in group {
+                // 任务完成
+            }
+        }
+        
+        print("图片预加载完成")
+    }
+    
+    /// 预加载单个物品的图片
+    private func preloadImage(for item: Item) async {
+        guard let imageURLString = item.imageURL,
+              let imageURL = URL(string: imageURLString) else {
+            return
+        }
+        
+        // 生成图片缓存文件名
+        let imageFileName = "item_\(item.id.uuidString).jpg"
+        
+        // 检查图片是否已缓存
+        if ImageCacheManager.shared.imageExists(withName: imageFileName) {
+            print("图片已存在于缓存中: \(imageFileName)")
+            return
+        }
+        
+        // 下载并缓存图片
+        print("开始下载图片: \(imageURLString)")
+        await withCheckedContinuation { continuation in
+            ImageCacheManager.shared.downloadAndCacheImage(from: imageURLString, withName: imageFileName) { image in
+                if let image = image {
+                    print("图片下载并缓存成功: \(imageFileName)")
+                } else {
+                    print("图片下载失败: \(imageURLString)")
+                }
+                continuation.resume()
+            }
+        }
     }
 }

@@ -40,6 +40,12 @@ struct FindThingsApp: App {
                 .environmentObject(itemManager)
                 .environmentObject(supabaseService)
                 .environmentObject(authService)
+                .onAppear {
+                    // 应用启动后预加载图片
+                    Task {
+                        await itemManager.preloadImages()
+                    }
+                }
         }
     }
 }

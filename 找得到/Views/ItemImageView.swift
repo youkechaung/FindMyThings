@@ -1,24 +1,56 @@
 import SwiftUI
 import UIKit
 
+// MARK: - 加载器
+class ImageLoader: ObservableObject {
+    @Published var image: UIImage?
+    private var itemID: UUID?
+    
+    init(itemID: UUID) {
+        loadImageFromCache(itemID: itemID)
+    }
+    
+    func loadImageFromCache(itemID: UUID) {
+        // 如果已经加载过相同ID的图片，直接返回
+        if self.itemID == itemID && self.image != nil {
+            return
+        }
+        
+        self.itemID = itemID
+        
+        // 生成图片缓存文件名
+        let imageName = "item_\(itemID.uuidString).jpg"
+        
+        // 检查缓存（内存 + 磁盘）
+        if let cachedImage = ImageCacheManager.shared.getImage(withName: imageName) {
+            self.image = cachedImage
+            return
+        }
+        
+        // 没有缓存 → 默认图
+        self.image = nil
+    }
+}
+
+// MARK: - 视图
 struct ItemImageView: View {
-    let imageURL: String?
-    let itemID: UUID
-    @State private var image: UIImage?
-    @State private var isLoading = false
+    @StateObject private var imageLoader: ImageLoader
+    
+    init(itemID: UUID) {
+        _imageLoader = StateObject(wrappedValue: ImageLoader(itemID: itemID))
+    }
     
     var body: some View {
         Group {
-            if let image = image {
+            if let image = imageLoader.image {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFit()
                     .frame(maxHeight: 300)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
-            } else if isLoading {
-                ProgressView()
-                    .frame(maxHeight: 300)
+                    .transition(.opacity.animation(.easeInOut(duration: 0.25)))
             } else {
+                // 默认图片（不会频繁闪烁）
                 RoundedRectangle(cornerRadius: 12)
                     .fill(Color.gray.opacity(0.2))
                     .frame(maxHeight: 300)
@@ -29,50 +61,12 @@ struct ItemImageView: View {
                     )
             }
         }
-        .onAppear {
-            loadImage()
-        }
-    }
-    
-    private func loadImage() {
-        guard let imageURL = imageURL, !imageURL.isEmpty else {
-            return
-        }
-        
-        // 生成图片缓存文件名
-        let imageName = "item_\(itemID.uuidString).jpg"
-        
-        // 首先检查本地缓存
-        if let cachedImage = ImageCacheManager.shared.getImage(withName: imageName) {
-            self.image = cachedImage
-            return
-        }
-        
-        // 如果是Base64编码的图片数据
-        if imageURL.hasPrefix("data:image") || !imageURL.hasPrefix("http") {
-            // 尝试解析Base64数据
-            let base64String = imageURL.hasPrefix("data:image") ? String(imageURL.split(separator: ",").last ?? "") : imageURL
-            if let imageData = Data(base64Encoded: base64String),
-               let uiImage = UIImage(data: imageData) {
-                self.image = uiImage
-                // 保存到本地缓存
-                ImageCacheManager.shared.saveImage(uiImage, withName: imageName)
-                return
-            }
-        }
-        
-        // 从网络下载图片
-        isLoading = true
-        ImageCacheManager.shared.downloadAndCacheImage(from: imageURL, withName: imageName) { downloadedImage in
-            self.image = downloadedImage
-            self.isLoading = false
-        }
     }
 }
 
 struct ItemImageView_Previews: PreviewProvider {
     static var previews: some View {
-        ItemImageView(imageURL: "https://example.com/image.jpg", itemID: UUID())
+        ItemImageView(itemID: UUID())
             .previewLayout(.sizeThatFits)
             .padding()
     }

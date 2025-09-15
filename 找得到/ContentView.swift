@@ -6,8 +6,9 @@
 //
 
 import SwiftUI
-import Speech
+import UIKit
 import AVFoundation
+import Speech
 
 struct ContentView: View {
     @EnvironmentObject private var itemManager: ItemManager
@@ -496,11 +497,16 @@ struct HomeView: View {
                     .environmentObject(authService)
                     .environmentObject(supabaseService)
             }
+            .onAppear {
+                // 当视图出现时预加载图片
+                Task {
+                    await itemManager.preloadImages()
+                }
+            }
         }
     }
 }
 
-// ...
 // MARK: - StatsCardView
 
 struct StatsCardView: View {
@@ -1323,22 +1329,23 @@ struct CategoryCardView: View {
 struct ItemCardView: View {
     let item: Item
     let itemManager: ItemManager
+    @StateObject private var imageLoader = ImageLoader(itemID: UUID())
+    
+    init(item: Item, itemManager: ItemManager) {
+        self.item = item
+        self.itemManager = itemManager
+        _imageLoader = StateObject(wrappedValue: ImageLoader(itemID: item.id))
+    }
     
     var body: some View {
         VStack(spacing: 8) {
             // 物品图片
-            if let imageURL = item.imageURL,
-               let url = URL(string: imageURL) {
-                AsyncImage(url: url) {
-                    image in image
+            if let image = imageLoader.image {
+                Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
-                        .frame(height: 120)
+                    .frame(height: 120)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
-                } placeholder: {
-                    ProgressView()
-                        .frame(height: 120)
-                }
             } else {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(Color.gray.opacity(0.2))
@@ -1407,21 +1414,22 @@ struct ItemCardView: View {
 struct CompactItemRowView: View {
     let item: Item
     let itemManager: ItemManager
+    @StateObject private var imageLoader = ImageLoader(itemID: UUID())
+    
+    init(item: Item, itemManager: ItemManager) {
+        self.item = item
+        self.itemManager = itemManager
+        _imageLoader = StateObject(wrappedValue: ImageLoader(itemID: item.id))
+    }
     
     var body: some View {
         HStack(spacing: 8) {
-            if let imageURL = item.imageURL,
-               let url = URL(string: imageURL) {
-                AsyncImage(url: url) {
-                    image in image
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 40, height: 40)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                } placeholder: {
-                    ProgressView()
-                        .frame(width: 40, height: 40)
-                }
+            if let image = imageLoader.image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 40, height: 40)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
             } else {
                 RoundedRectangle(cornerRadius: 6)
                     .fill(Color.gray.opacity(0.2))
@@ -1538,8 +1546,7 @@ struct SearchBar: View {
         }
         .padding(8)
         .background(Color(.systemGray6))
-        .cornerRadius(8)
-    }
+        .cornerRadius(8)}
 }
 
 
